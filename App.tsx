@@ -125,6 +125,14 @@ const parseTurnaroundDataWithMapping = (rawData: any[], mapping: Mapping, startD
         if (rawArrDate && rawArrDate.getFullYear() < 1970) rawArrDate = null;
         if (rawDepDate && rawDepDate.getFullYear() < 1970) rawDepDate = null;
 
+        // Check for DX / Cancelled Flight status
+        const statusKey = mapping.status;
+        const rawStatus = String(statusKey ? row[statusKey] : (row['Status'] || row['Dep Status'] || row['Status_1'] || row['Remark'] || '')).toUpperCase().trim();
+        if (rawStatus === 'DX' || rawStatus.startsWith('DX') || rawStatus.includes('CANCEL') || rawStatus.includes('İPTAL') || rawStatus.includes('IPTAL')) {
+            errors.push({ rowIndex: i + 2, reason: "İptal Uçuş (DX) - Planlamaya yansıtılmadı.", rowData: row });
+            return [];
+        }
+
         const hasArrival = !!rawArrDate;
         const hasDeparture = !!rawDepDate;
 
