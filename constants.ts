@@ -49,7 +49,7 @@ export const SORTED_PARKING_POSITIONS = [...PARKING_POSITIONS].sort((a, b) => b.
 
 export const WIDE_BODY_AIRCRAFT = new Set(['A359', 'A35K', 'B77W', 'B789', 'B788', 'A330', 'A332', 'A333', 'A340', 'A380', 'B747', 'B767', 'B777', 'A306', 'A310', 'B762', 'B763', 'B764', 'B772', 'B77L', 'B744', 'B748', 'B77X', 'A338', 'A339', 'B781']);
 
-export const FLIGHT_CARD_HEIGHT = 28;
+export const FLIGHT_CARD_HEIGHT = 34;
 export const FLIGHT_CARD_MARGIN = 3;
 
 export const TURKISH_DOMESTIC_AIRPORTS = new Set([
