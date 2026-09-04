@@ -85,14 +85,26 @@ const generateTooltipText = (flight: Flight): string => {
         const formatEur = (val: number) => `€${Math.round(val).toLocaleString('tr-TR')}`;
         const formatTry = (val: number) => `₺${Math.round(val).toLocaleString('tr-TR')}`;
 
-        tooltip += `\n\n--- 💰 KOİ UÇAK GELİR BİLGİSİ (${revenue.isBridge ? '🌉 Köprülü Pier' : '🚌 Remote / Açık'}) ---`;
-        tooltip += `\n• MTOW: ${revenue.mtow} Ton | Tahmini Yolcu: ${revenue.paxCount} Pax`;
+        const posText = revenue.isBridge ? '🌉 Köprülü Pier' : '🚌 Remote / Açık';
+        const acText = revenue.isWideBody ? 'Geniş Gövde (2x PBB/GPU/PCA)' : 'Dar Gövde (1x PBB/GPU/PCA)';
+
+        tooltip += `\n\n--- 💰 KOİ UÇAK GELİR HESAPLAMASI (${posText}) ---`;
+        tooltip += `\n• Tip / MTOW: ${flight.aircraftType || 'A/C'} (${revenue.mtow}t) | ${acText}`;
+        tooltip += `\n• Giden Yolcu: ${revenue.paxCount} Pax`;
         tooltip += `\n• Konma Ücreti: ${formatEur(revenue.landingEur)} (${formatTry(revenue.landingTry)})`;
         if (revenue.parkingEur > 0) tooltip += `\n• Konaklama Ücreti: ${formatEur(revenue.parkingEur)} (${formatTry(revenue.parkingTry)})`;
-        if (revenue.isBridge) tooltip += `\n• Yolcu Köprü Ücreti: ${formatEur(revenue.bridgeEur)} (${formatTry(revenue.bridgeTry)})`;
+        if (revenue.isBridge) {
+          tooltip += `\n• Servis Süresi: ${revenue.serviceHours.toFixed(1)} saat (Max 4saat fix)`;
+          tooltip += `\n• Yolcu Köprü (${revenue.bridgeCount}x PBB): ${formatEur(revenue.bridgeEur)} (${formatTry(revenue.bridgeTry)})`;
+          tooltip += `\n• GPU Elektrik (${revenue.gpuCount}x GPU): ${formatEur(revenue.gpuEur)} (${formatTry(revenue.gpuTry)})`;
+          tooltip += `\n• PCA İklimlendirme (${revenue.pcaCount}x PCA): ${formatEur(revenue.pcaEur)} (${formatTry(revenue.pcaTry)})`;
+          tooltip += `\n• Su Servisi (1x Su): ${formatEur(revenue.waterEur)} (${formatTry(revenue.waterTry)})`;
+        } else {
+          tooltip += `\n• Remote Ekipmanlar (PBB/GPU/PCA/Su): €0 (Açık Pozisyon)`;
+        }
         tooltip += `\n• Yolcu Servis Ücreti: ${formatEur(revenue.paxServiceEur)} (${formatTry(revenue.paxServiceTry)})`;
         tooltip += `\n---------------------------------`;
-        tooltip += `\nTOPLAM TAHMİNİ GELİR: ${formatEur(revenue.totalEur)} (${formatTry(revenue.totalTry)})`;
+        tooltip += `\nTOPLAM GELİR: ${formatEur(revenue.totalEur)} (${formatTry(revenue.totalTry)})`;
     }
 
 
