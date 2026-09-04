@@ -218,7 +218,7 @@ export const TimelineLane: React.FC<TimelineLaneProps> = ({
                 if (relatedPositions.length === 0 || totalDurationMs <= 0) return null;
 
                 const marsSiblingFlights = allFlights.filter(f => 
-                    f.parkingPosition && relatedPositions.includes(f.parkingPosition)
+                    f.parkingPosition && f.parkingPosition !== laneId && relatedPositions.includes(f.parkingPosition)
                 );
 
                 const viewStartMs = startDate.getTime();
