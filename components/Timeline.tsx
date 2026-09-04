@@ -340,7 +340,7 @@ export const TimelineLane: React.FC<TimelineLaneProps> = ({
                             if (node) flightElements.current.set(flight.id, node);
                             else flightElements.current.delete(flight.id);
                         }}
-                        className="absolute top-4 bottom-4 rounded-md overflow-hidden z-10"
+                        className="absolute top-[3px] bottom-[3px] rounded-md overflow-hidden z-10 flex items-center"
                         style={{ left: `${left}%`, width: `${width}%` }}
                     >
                         <FlightCard 
