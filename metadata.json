@@ -1,0 +1,5 @@
+{
+  "name": "Airport Gate Assignment Planner",
+  "description": "A web application to manage and visualize aircraft parking assignments at an airport. Users can import flight lists, view unassigned flights, and drag-and-drop them onto a timeline of parking positions.",
+  "requestFramePermissions": []
+}
