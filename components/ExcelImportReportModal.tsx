@@ -23,6 +23,11 @@ const ExcelImportReportModal: React.FC<ExcelImportReportModalProps> = ({ isOpen,
 
     if (!isOpen || !report) return null;
 
+    const dxCancelledCount = report.errors.filter(e => 
+        e.reason.includes('DX') || e.reason.includes('İptal') || e.reason.includes('IPTAL') || e.reason.includes('CANCEL')
+    ).length;
+    const syntaxErrorCount = report.errors.length - dxCancelledCount;
+
     const timeOptions: Intl.DateTimeFormatOptions = {
         day: '2-digit',
         month: '2-digit',
@@ -52,26 +57,30 @@ const ExcelImportReportModal: React.FC<ExcelImportReportModalProps> = ({ isOpen,
                 <main className="p-6 flex-grow overflow-y-auto space-y-6">
 
                     {/* KPI Stat Cards */}
-                    <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-                        <div className="bg-gray-700/60 p-3 rounded-lg border border-gray-600/80 text-center">
-                            <span className="text-xs text-gray-400 font-semibold block uppercase">Excel Satır</span>
-                            <span className="text-2xl font-black text-white">{report.totalExcelRows}</span>
+                    <div className="grid grid-cols-2 md:grid-cols-6 gap-2">
+                        <div className="bg-gray-700/60 p-2.5 rounded-lg border border-gray-600/80 text-center">
+                            <span className="text-[11px] text-gray-400 font-semibold block uppercase">Excel Satır</span>
+                            <span className="text-xl font-black text-white">{report.totalExcelRows}</span>
                         </div>
-                        <div className="bg-blue-900/40 p-3 rounded-lg border border-blue-600/60 text-center">
-                            <span className="text-xs text-blue-300 font-semibold block uppercase">Aktarılan Uçuş</span>
-                            <span className="text-2xl font-black text-blue-400">{report.totalParsedFlights}</span>
+                        <div className="bg-blue-900/40 p-2.5 rounded-lg border border-blue-600/60 text-center">
+                            <span className="text-[11px] text-blue-300 font-semibold block uppercase">Aktarılan Uçuş</span>
+                            <span className="text-xl font-black text-blue-400">{report.totalParsedFlights}</span>
                         </div>
-                        <div className="bg-emerald-900/40 p-3 rounded-lg border border-emerald-600/60 text-center">
-                            <span className="text-xs text-emerald-300 font-semibold block uppercase">Pozisyona Atanan</span>
-                            <span className="text-2xl font-black text-emerald-400">{report.assignedFlightsCount}</span>
+                        <div className="bg-emerald-900/40 p-2.5 rounded-lg border border-emerald-600/60 text-center">
+                            <span className="text-[11px] text-emerald-300 font-semibold block uppercase">Pozisyona Atanan</span>
+                            <span className="text-xl font-black text-emerald-400">{report.assignedFlightsCount}</span>
                         </div>
-                        <div className="bg-amber-900/40 p-3 rounded-lg border border-amber-600/60 text-center">
-                            <span className="text-xs text-amber-300 font-semibold block uppercase">Atanmamış Havuz</span>
-                            <span className="text-2xl font-black text-amber-400">{report.unassignedFlightsCount}</span>
+                        <div className="bg-amber-900/40 p-2.5 rounded-lg border border-amber-600/60 text-center">
+                            <span className="text-[11px] text-amber-300 font-semibold block uppercase">Atanmamış Havuz</span>
+                            <span className="text-xl font-black text-amber-400">{report.unassignedFlightsCount}</span>
                         </div>
-                        <div className="bg-rose-900/40 p-3 rounded-lg border border-rose-600/60 text-center">
-                            <span className="text-xs text-rose-300 font-semibold block uppercase">Hatalı Satır</span>
-                            <span className="text-2xl font-black text-rose-400">{report.errors.length}</span>
+                        <div className="bg-purple-900/40 p-2.5 rounded-lg border border-purple-600/60 text-center">
+                            <span className="text-[11px] text-purple-300 font-semibold block uppercase">İptal Uçuş (DX)</span>
+                            <span className="text-xl font-black text-purple-400">{dxCancelledCount}</span>
+                        </div>
+                        <div className="bg-rose-900/40 p-2.5 rounded-lg border border-rose-600/60 text-center">
+                            <span className="text-[11px] text-rose-300 font-semibold block uppercase">Okuma Hatası</span>
+                            <span className="text-xl font-black text-rose-400">{syntaxErrorCount}</span>
                         </div>
                     </div>
 
@@ -114,7 +123,7 @@ const ExcelImportReportModal: React.FC<ExcelImportReportModalProps> = ({ isOpen,
                             onClick={() => setActiveTab('errors')}
                             className={`py-2 px-4 font-semibold text-sm rounded-t-lg transition ${activeTab === 'errors' ? 'bg-rose-600 text-white' : 'text-gray-400 hover:bg-gray-700'}`}
                         >
-                            ⚠️ Hatalı Satırlar ({report.errors.length})
+                            ⚠️ Filtrelenen / Hatalı Satırlar ({report.errors.length})
                         </button>
                     </div>
 
@@ -129,10 +138,13 @@ const ExcelImportReportModal: React.FC<ExcelImportReportModalProps> = ({ isOpen,
                                 <ul className="list-disc list-inside mt-2 space-y-1 text-gray-300">
                                     <li><strong className="text-emerald-400">{report.assignedFlightsCount} uçuş</strong> doğrudan Excel'deki park pozisyonu koduna (ArrStand/DepStand) otomatik atandı.</li>
                                     <li><strong className="text-amber-400">{report.unassignedFlightsCount} uçuş</strong> Excel kaynağında stand bilgisi boş olduğu için <strong>Atanmamış Havuzu</strong>'na alındı.</li>
-                                    {report.errors.length > 0 ? (
-                                        <li className="text-rose-400 font-bold">{report.errors.length} satır geçersiz zaman veya format hatası nedeniyle atlandı.</li>
+                                    {dxCancelledCount > 0 && (
+                                        <li className="text-purple-300 font-semibold"><strong className="text-purple-400">{dxCancelledCount} uçuş</strong> statüsü İptal (DX / CANCEL) olduğu için süzüldü ve plana aktarılmadı.</li>
+                                    )}
+                                    {syntaxErrorCount > 0 ? (
+                                        <li className="text-rose-400 font-bold">{syntaxErrorCount} satır geçersiz zaman veya format hatası nedeniyle atlandı.</li>
                                     ) : (
-                                        <li className="text-emerald-400">Hiçbir satırda veri okuma hatası oluşmadı (%100 Başarılı aktarım).</li>
+                                        <li className="text-emerald-400">Veri okuma veya zaman formatı hatası olan satır bulunmamaktadır (%100 Başarılı aktarım).</li>
                                     )}
                                 </ul>
                             </div>
