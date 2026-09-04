@@ -28,6 +28,7 @@ export type Mapping = {
     arrivalGate?: string | null;
     departureGate?: string | null;
     mtow?: string | null;
+    status?: string | null;
 };
 
 // For "Her Satır Tek Bir Uçuş Bacağı (Leg)"
@@ -41,6 +42,7 @@ const LEG_FIELDS = [
   { id: 'destination', label: 'Varış (Dest)', required: false, guesses: ['to station', 'dep to statition', 'dep to station', 'gh', 'dest', 'varış', 'to', 'destination'] },
   { id: 'flightMode', label: 'Uçuş Modu I/D (Opsiyonel)', required: false, guesses: ['i/d', 'mode', 'mod'] },
   { id: 'mtow', label: 'MTOW (Azami Kalkış Ağırlığı)', required: false, guesses: ['mtow', 'max weight', 'kalkış ağırlığı', 'weight'] },
+  { id: 'status', label: 'Uçuş Durumu (Status / DX)', required: false, guesses: ['status', 'dep status', 'durum', 'remark'] },
   { id: 'parkingPosition', label: 'Park Pozisyonu (Opsiyonel)', required: false, guesses: ['arrstand', 'depstand', 'park', 'stand', 'pos', 'pozisyon', 'parking'] },
   { id: 'gate', label: 'Gate (Opsiyonel)', required: false, guesses: ['gate', 'arrgate', 'körük'] },
 ];
@@ -54,6 +56,7 @@ const TURNAROUND_FIELDS = [
     { id: 'aircraftType', label: 'Uçak Tipi (AC)', required: false, guesses: ['a/c type', 'actype', 'ac', 'uçak tipi', 'aircraft type'] },
     { id: 'regNo', label: 'Tescil / Kuyruk Kodu (RegNo)', required: false, guesses: ['regno', 'reg no', 'reg', 'tescil', 'kuyruk no', 'tail', 'registration'] },
     { id: 'mtow', label: 'MTOW (Azami Kalkış Ağırlığı)', required: false, guesses: ['mtow', 'max weight', 'kalkış ağırlığı', 'weight'] },
+    { id: 'status', label: 'Uçuş Durumu (Status / DX)', required: false, guesses: ['status', 'dep status', 'durum', 'remark'] },
     { id: 'origin', label: 'Geliş Havalimanı (Origin)', required: false, guesses: ['from statition', 'from station', 'from', 'origin', 'nereden'] },
     { id: 'destination', label: 'Gidiş Havalimanı (Destination)', required: false, guesses: ['to station', 'dep to statition', 'dep to station', 'gh', 'dest', 'nereye', 'to', 'destination'] },
     { id: 'arrivalMode', label: 'Geliş Modu I/D (Opsiyonel)', required: false, guesses: ['i/d', 'arr i/d', 'arr id', 'geliş mod'] },
