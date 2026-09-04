@@ -261,7 +261,7 @@ const FlightCard: React.FC<FlightCardProps> = ({
       `}
       title={tooltipText}
     >
-      <div className="flex items-center justify-between w-full px-1.5 text-[10px] font-bold text-white leading-tight">
+      <div className="flex items-center justify-between w-full px-2 text-xs font-bold text-white leading-tight">
         <span className="w-4 text-left flex-shrink-0">{startDisplay}</span>
         <span className="flex-grow text-center truncate px-1">{displayText}</span>
         <span className="w-4 text-right flex-shrink-0">{endDisplay}</span>
