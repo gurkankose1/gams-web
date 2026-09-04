@@ -13,6 +13,9 @@ export const BottomRevenueSummaryBar: React.FC<BottomRevenueSummaryBarProps> = (
     let landingTotalEur = 0;
     let parkingTotalEur = 0;
     let bridgeTotalEur = 0;
+    let gpuTotalEur = 0;
+    let pcaTotalEur = 0;
+    let waterTotalEur = 0;
     let paxServiceTotalEur = 0;
     let grandTotalEur = 0;
 
@@ -31,6 +34,9 @@ export const BottomRevenueSummaryBar: React.FC<BottomRevenueSummaryBarProps> = (
       landingTotalEur += rev.landingEur;
       parkingTotalEur += rev.parkingEur;
       bridgeTotalEur += rev.bridgeEur;
+      gpuTotalEur += rev.gpuEur;
+      pcaTotalEur += rev.pcaEur;
+      waterTotalEur += rev.waterEur;
       paxServiceTotalEur += rev.paxServiceEur;
       grandTotalEur += rev.totalEur;
 
@@ -57,6 +63,9 @@ export const BottomRevenueSummaryBar: React.FC<BottomRevenueSummaryBarProps> = (
       landingTotalEur,
       parkingTotalEur,
       bridgeTotalEur,
+      gpuTotalEur,
+      pcaTotalEur,
+      waterTotalEur,
       paxServiceTotalEur,
       grandTotalEur,
       grandTotalTry,
@@ -111,10 +120,10 @@ export const BottomRevenueSummaryBar: React.FC<BottomRevenueSummaryBarProps> = (
         </button>
 
         <div className="flex items-center space-x-2 bg-gray-800/80 border border-gray-700 rounded-md px-3 py-1.5">
-          <span className="text-amber-400 font-bold text-xs">📊 Planlanan Atanmış Uçuşlar:</span>
+          <span className="text-amber-400 font-bold text-xs">📊 Atanmış Uçuşlar:</span>
           <span className="text-white font-extrabold text-xs">{stats.assignedCount} Uçuş</span>
           <span className="text-gray-400 text-[11px]">
-            (🇹🇷 {stats.domesticCount} İç Hat / 🌍 {stats.internationalCount} Dış Hat)
+            (🇹🇷 {stats.domesticCount} / 🌍 {stats.internationalCount})
           </span>
         </div>
 
@@ -131,9 +140,9 @@ export const BottomRevenueSummaryBar: React.FC<BottomRevenueSummaryBarProps> = (
       </div>
 
       {/* Orta: Kategori Bazlı Gelir Kırılımı */}
-      <div className="hidden lg:flex items-center space-x-4 bg-gray-900/60 border border-gray-700/50 rounded-lg px-4 py-1.5 text-[11px]">
+      <div className="hidden lg:flex items-center space-x-3 bg-gray-900/60 border border-gray-700/50 rounded-lg px-3 py-1.5 text-[10px]">
         <div>
-          <span className="text-gray-400 block">🛬 Konma Ücreti</span>
+          <span className="text-gray-400 block">🛬 Konma</span>
           <span className="text-white font-bold">{formatEur(stats.landingTotalEur)}</span>
         </div>
         <div className="h-6 w-px bg-gray-700" />
@@ -143,8 +152,23 @@ export const BottomRevenueSummaryBar: React.FC<BottomRevenueSummaryBarProps> = (
         </div>
         <div className="h-6 w-px bg-gray-700" />
         <div>
-          <span className="text-cyan-300 block">🌉 Yolcu Köprüsü</span>
+          <span className="text-cyan-300 block">🌉 PBB Köprü</span>
           <span className="text-cyan-200 font-bold">{formatEur(stats.bridgeTotalEur)}</span>
+        </div>
+        <div className="h-6 w-px bg-gray-700" />
+        <div>
+          <span className="text-amber-300 block">⚡ GPU 400Hz</span>
+          <span className="text-amber-200 font-bold">{formatEur(stats.gpuTotalEur)}</span>
+        </div>
+        <div className="h-6 w-px bg-gray-700" />
+        <div>
+          <span className="text-sky-300 block">❄️ PCA İklim</span>
+          <span className="text-sky-200 font-bold">{formatEur(stats.pcaTotalEur)}</span>
+        </div>
+        <div className="h-6 w-px bg-gray-700" />
+        <div>
+          <span className="text-blue-300 block">🚰 Su Servisi</span>
+          <span className="text-blue-200 font-bold">{formatEur(stats.waterTotalEur)}</span>
         </div>
         <div className="h-6 w-px bg-gray-700" />
         <div>
@@ -157,7 +181,7 @@ export const BottomRevenueSummaryBar: React.FC<BottomRevenueSummaryBarProps> = (
       <div className="flex items-center space-x-3 bg-gradient-to-r from-emerald-950 via-emerald-900 to-teal-950 border-2 border-emerald-400/80 rounded-xl px-4 py-1.5 shadow-lg shadow-emerald-900/30 ring-2 ring-emerald-400/20">
         <div className="text-right">
           <div className="text-[10px] uppercase font-bold tracking-wider text-emerald-300">
-            MEVCUT PLAN HESAPLANAN TOPLAM GELİR
+            MEVCUT PLAN TOPLAM GELİR
           </div>
           <div className="flex items-baseline space-x-2">
             <span className="text-white font-black text-base tracking-tight">
