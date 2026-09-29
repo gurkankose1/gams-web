@@ -607,6 +607,7 @@ const App: React.FC<{ user: User }> = ({ user }) => {
 
     const [contextMenu, setContextMenu] = useState<{ x: number; y: number; flightId: string; } | null>(null);
     const [ruleOverrides, setRuleOverrides] = useState<Set<string>>(new Set());
+    const [isSuperSetMode, setIsSuperSetMode] = useState(false);
     const [historyModalFlight, setHistoryModalFlight] = useState<Flight | null>(null);
     const [trackingFlight, setTrackingFlight] = useState<Flight | null>(null);
     const [gateAssignmentFlight, setGateAssignmentFlight] = useState<Flight | null>(null);
@@ -820,6 +821,19 @@ const App: React.FC<{ user: User }> = ({ user }) => {
             return newSet;
         });
     }, [flights, maintenanceBlocks, ruleOverrides, currentUser.username, gateList]);
+
+    const handleToggleFlightSuperSet = useCallback((flightId: string) => {
+        const targetFlight = flights.find(f => f.id === flightId);
+        if (!targetFlight) return;
+        const nextState = !targetFlight.isSuperSet;
+        const action = nextState ? "Super Set etkinleştirildi (Destinasyon kuralları askıya alındı)." : "Super Set devre dışı bırakıldı.";
+        const newHistoryEntry: FlightHistoryEntry = { user: currentUser.username, action, timestamp: new Date() };
+
+        const newFlights = flights.map(f =>
+            f.id === flightId ? { ...f, isSuperSet: nextState, history: [...(f.history || []), newHistoryEntry] } : f
+        );
+        updateDatabase({ flights: newFlights, maintenanceBlocks, gates: gateList });
+    }, [flights, maintenanceBlocks, currentUser.username, gateList]);
 
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
@@ -1472,6 +1486,17 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                             <button onClick={handleLink} disabled={!canLink} className="w-36 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-1 px-3 rounded-md transition duration-300 disabled:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed">
                                 Bağla
                             </button>
+                            <button
+                                onClick={() => setIsSuperSetMode(prev => !prev)}
+                                className={`px-3 py-1 font-bold text-xs rounded-md transition duration-300 flex items-center gap-1 shadow-md ${
+                                    isSuperSetMode
+                                        ? 'bg-amber-500 text-gray-950 ring-2 ring-amber-300 animate-pulse'
+                                        : 'bg-gray-700 hover:bg-gray-600 text-amber-400 border border-amber-500/50'
+                                }`}
+                                title="Tip kısıtları ve boyut sınırları hariç tüm destinasyon, iç/dış hat ve kargo kurallarını askıya alır."
+                            >
+                                ⚡ Super Set {isSuperSetMode ? '(AÇIK)' : '(KAPALI)'}
+                            </button>
                         </div>
                     </div>
                     <div className="flex items-center gap-x-3">
@@ -1524,7 +1549,7 @@ const App: React.FC<{ user: User }> = ({ user }) => {
             {currentUser.isAdmin && <AdminPanel isOpen={isAdminPanelOpen} onClose={() => setAdminPanelOpen(false)} />}
             <ChangePasswordModal isOpen={isChangePasswordModalOpen} onClose={() => setChangePasswordModalOpen(false)} />
 
-            <FlightContextMenu menu={contextMenu} onClose={() => setContextMenu(null)} onToggleOverride={toggleRuleOverride} ruleOverrides={ruleOverrides} onShowHistory={handleShowHistory} onShowMap={handleShowMap} onAssignGate={handleOpenGateAssignmentModal} />
+            <FlightContextMenu menu={contextMenu} onClose={() => setContextMenu(null)} onToggleOverride={toggleRuleOverride} onToggleSuperSet={handleToggleFlightSuperSet} ruleOverrides={ruleOverrides} onShowHistory={handleShowHistory} onShowMap={handleShowMap} onAssignGate={handleOpenGateAssignmentModal} />
 
             {isMappingModalOpen && excelData.current && (
                 <ColumnMappingModal isOpen={isMappingModalOpen} onClose={() => setMappingModalOpen(false)} headers={excelData.current.headers} dataPreview={excelData.current.data.slice(0, 5)} onConfirm={handleConfirmMapping} />
@@ -1648,6 +1673,7 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                                                             flightElements={flightElements}
                                                             maintenanceBlocks={maintenanceBlocks.filter(b => b.parkingPosition === pos)}
                                                             onUpdateMaintenanceBlock={handleUpdateMaintenanceBlock}
+                                                            isSuperSetMode={isSuperSetMode}
                                                         />
                                                     )}
                                                 </>
@@ -1678,6 +1704,7 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                                                 flightElements={flightElements}
                                                 maintenanceBlocks={[]} // Maintenance is per-parking-position
                                                 onUpdateMaintenanceBlock={() => {}} // Not applicable for gates
+                                                isSuperSetMode={isSuperSetMode}
                                             />
                                         )}
                                     </>
