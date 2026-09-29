@@ -1430,6 +1430,17 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                         <button onClick={() => setMaintenanceManagementModalOpen(true)} className="bg-yellow-600 hover:bg-yellow-700 text-white font-semibold py-1.5 px-3 rounded transition duration-300">
                             Bakım Yönetimi
                         </button>
+                        <button
+                            onClick={() => setIsSuperSetMode(prev => !prev)}
+                            className={`font-black text-xs py-1.5 px-3.5 rounded transition duration-300 flex items-center gap-1.5 shadow-lg select-none ${
+                                isSuperSetMode
+                                    ? 'bg-amber-400 hover:bg-amber-300 text-gray-950 ring-2 ring-amber-300 animate-pulse'
+                                    : 'bg-amber-700 hover:bg-amber-600 text-amber-100 border border-amber-400/60'
+                            }`}
+                            title="Destinasyon, iç/dış hat, kargo ve pervaneli uçak kısıtlarını askıya alır. Sadece tip/boyut kısıtları aktif kalır."
+                        >
+                            <span>⚡</span> Super Set {isSuperSetMode ? '(AÇIK)' : '(KAPALI)'}
+                        </button>
                         <button onClick={handleClearAllFlights} className="bg-red-600 hover:bg-red-700 text-white font-semibold py-1.5 px-3 rounded transition duration-300">
                             Tümünü Sil
                         </button>
