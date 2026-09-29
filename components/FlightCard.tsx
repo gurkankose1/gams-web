@@ -275,7 +275,10 @@ const FlightCard: React.FC<FlightCardProps> = ({
     >
       <div className="flex items-center justify-between w-full px-2 text-xs font-bold text-white leading-tight">
         <span className="w-4 text-left flex-shrink-0">{startDisplay}</span>
-        <span className="flex-grow text-center truncate px-1">{displayText}</span>
+        <span className="flex-grow text-center truncate px-1">
+          {flight.isSuperSet && <span className="text-amber-300 mr-1 font-black" title="Super Set (Destinasyon Kuralı Askıda)">⚡</span>}
+          {displayText}
+        </span>
         <span className="w-4 text-right flex-shrink-0">{endDisplay}</span>
       </div>
     </div>
