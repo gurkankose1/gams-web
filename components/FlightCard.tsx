@@ -43,7 +43,7 @@ const getFlightDisplayText = (flight: Flight): string => {
     return `${erPrefix}${flightNumText}${typeSuffix}${parkingInfo}${gateInfo}`;
 }
 
-const generateTooltipText = (flight: Flight): string => {
+const generateTooltipText = (flight: Flight, isOverridden: boolean): string => {
     const timeFormatOptions: Intl.DateTimeFormatOptions = {
         hour: '2-digit',
         minute: '2-digit',
@@ -65,7 +65,7 @@ const generateTooltipText = (flight: Flight): string => {
         emojiPrefix = `[${departureE}]`;
     }
 
-    let tooltip = `${emojiPrefix} ${getFlightDisplayText(flight)}\n`;
+    let tooltip = isOverridden ? `[⚠️ AMS Kural İhlali (Esnetildi)]\n${emojiPrefix} ${getFlightDisplayText(flight)}\n` : `${emojiPrefix} ${getFlightDisplayText(flight)}\n`;
     if (flight.departureMode) {
         tooltip += `Departure Mode: ${flight.departureMode}\n`;
     }
@@ -223,7 +223,7 @@ const FlightCard: React.FC<FlightCardProps> = ({
   };
 
 
-  const tooltipText = useMemo(() => generateTooltipText(flight), [flight]);
+  const tooltipText = useMemo(() => generateTooltipText(flight, isOverridden), [flight, isOverridden]);
   const displayText = useMemo(() => getFlightDisplayText(flight), [flight]);
   
   const { startDisplay, endDisplay } = useMemo(() => {
