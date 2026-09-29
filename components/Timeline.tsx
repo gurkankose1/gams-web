@@ -3,6 +3,7 @@ import { useDrop } from 'react-dnd';
 import { Flight, ItemTypes, MaintenanceBlock } from '../types.ts';
 import FlightCard from './FlightCard.tsx';
 import { WIDE_BODY_AIRCRAFT, CONCOURSE_LAYOUT, DOMESTIC_CONCOURSES, INTERNATIONAL_CONCOURSES } from '../constants.ts';
+import { validateFlightPlacement } from '../services/ams-rules.ts';
 
 interface TimelineLaneProps {
   laneId: string;
@@ -129,43 +130,8 @@ export const TimelineLane: React.FC<TimelineLaneProps> = ({
                 );
                 if (hasMaintenanceConflict) return false;
 
-                if (!ruleOverrides.has(draggedFlight.id)) {
-                    let isDepartureDomestic: boolean | null = null;
-                    if (draggedFlight.type === 'turnaround') {
-                        isDepartureDomestic = draggedFlight.departureIsDomestic ?? false;
-                    } else if (draggedFlight.type === 'departure') {
-                        isDepartureDomestic = draggedFlight.isDomestic;
-                    }
-                    
-                    if (isDepartureDomestic !== null) {
-                        const gateType = getParkingPositionType(laneId);
-                        if (gateType === 'domestic' && !isDepartureDomestic) return false;
-                        if (gateType === 'international' && isDepartureDomestic) return false;
-                    }
-
-                    const isWideBody = WIDE_BODY_AIRCRAFT.has(draggedFlight.aircraftType);
-                    const isCenterPosition = !laneId.endsWith('L') && !laneId.endsWith('R');
-                    if (isWideBody && !isCenterPosition) {
-                        return false;
-                    }
-                }
-
-                const relatedPositions = getRelatedMarsPositions(laneId);
-                if (relatedPositions.length > 0) {
-                     const assignedFlightsOnRelatedPositions = allFlights.filter(f =>
-                        f.id !== draggedFlight.id &&
-                        f.parkingPosition && relatedPositions.includes(f.parkingPosition)
-                    );
-
-                    const draggedArrival = draggedFlight.scheduledArrival.getTime();
-                    const draggedDeparture = draggedFlight.scheduledDeparture.getTime();
-
-                    const hasMarsConflict = assignedFlightsOnRelatedPositions.some(existingFlight => 
-                        draggedArrival < existingFlight.scheduledDeparture.getTime() &&
-                        draggedDeparture > existingFlight.scheduledArrival.getTime()
-                    );
-                     if (hasMarsConflict) return false;
-                }
+                const validation = validateFlightPlacement(draggedFlight, laneId, allFlights, ruleOverrides);
+                if (!validation.isValid) return false;
             }
            
             return true;
