@@ -1,6 +1,6 @@
 {
   "name": "gams-web",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "GAMS - Web Application",
   "private": true,
   "scripts": {
