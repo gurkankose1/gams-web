@@ -177,7 +177,8 @@ export function validateFlightPlacement(
     flight: Flight,
     targetPosition: string,
     allFlights: Flight[],
-    ruleOverrides?: Set<string>
+    ruleOverrides?: Set<string>,
+    globalSuperSet?: boolean
 ): ValidationResult {
     // If override is enabled for this flight, pass validation
     if (ruleOverrides && ruleOverrides.has(flight.id)) {
@@ -185,6 +186,8 @@ export function validateFlightPlacement(
     }
 
     const reasons: string[] = [];
+    const isSuperSet = flight.isSuperSet === true || globalSuperSet === true;
+
     const category = getAircraftCategory(flight.aircraftType);
     const isWide = category === 'D' || category === 'E' || category === 'F';
     const isHeavy = category === 'F';
@@ -239,35 +242,38 @@ export function validateFlightPlacement(
         }
     }
 
-    // --- RULE E: Propeller / Turboprop Contact Stand Restriction (PDF 2) ---
-    if (isProp && isContactStand(targetPosition)) {
-        reasons.push(`Pervaneli / Turboprop uçak (${flight.aircraftType}) Körük (Pier A-G) pozisyonuna park edemez. Remote Apron (H) kullanmalı.`);
-    }
-
-    // --- RULE F: Domestic vs International Concourse Rules (PDF 2) ---
-    let isDepartureDomestic: boolean | null = null;
-    if (flight.type === 'turnaround') {
-        isDepartureDomestic = flight.departureIsDomestic ?? flight.isDomestic;
-    } else if (flight.type === 'departure') {
-        isDepartureDomestic = flight.isDomestic;
-    } else if (flight.type === 'arrival') {
-        isDepartureDomestic = flight.arrivalIsDomestic ?? flight.isDomestic;
-    }
-
-    if (isDepartureDomestic !== null) {
-        if (isDomesticConcourse(targetPosition) && !isDepartureDomestic) {
-            reasons.push(`Dış hat uçuşu İç hat körüğüne (${targetPosition}) park edemez.`);
+    // --- SUPER SET EXEMPTION: Bypasses Destination / Route / Int-Dom / Cargo / Propeller restrictions ---
+    if (!isSuperSet) {
+        // --- RULE E: Propeller / Turboprop Contact Stand Restriction (PDF 2) ---
+        if (isProp && isContactStand(targetPosition)) {
+            reasons.push(`Pervaneli / Turboprop uçak (${flight.aircraftType}) Körük (Pier A-G) pozisyonuna park edemez. Remote Apron (H) kullanmalı.`);
         }
-        if (isInternationalConcourse(targetPosition) && isDepartureDomestic) {
-            reasons.push(`İç hat uçuşu Dış hat körüğüne (${targetPosition}) park edemez.`);
-        }
-    }
 
-    // --- RULE G: Cargo Flight Apron Restrictions (PDF 2) ---
-    if (isCargo) {
-        const concourse = Object.keys(CONCOURSE_LAYOUT).find(c => CONCOURSE_LAYOUT[c].includes(targetPosition)) || '';
-        if (isContactStand(targetPosition) && !concourse.includes('CARGO')) {
-            reasons.push(`Kargo uçuşu yolcu körüğüne (${targetPosition}) park edemez. Kargo Apronu kullanmalı.`);
+        // --- RULE F: Domestic vs International Concourse Rules (PDF 2) ---
+        let isDepartureDomestic: boolean | null = null;
+        if (flight.type === 'turnaround') {
+            isDepartureDomestic = flight.departureIsDomestic ?? flight.isDomestic;
+        } else if (flight.type === 'departure') {
+            isDepartureDomestic = flight.isDomestic;
+        } else if (flight.type === 'arrival') {
+            isDepartureDomestic = flight.arrivalIsDomestic ?? flight.isDomestic;
+        }
+
+        if (isDepartureDomestic !== null) {
+            if (isDomesticConcourse(targetPosition) && !isDepartureDomestic) {
+                reasons.push(`Dış hat uçuşu İç hat körüğüne (${targetPosition}) park edemez.`);
+            }
+            if (isInternationalConcourse(targetPosition) && isDepartureDomestic) {
+                reasons.push(`İç hat uçuşu Dış hat körüğüne (${targetPosition}) park edemez.`);
+            }
+        }
+
+        // --- RULE G: Cargo Flight Apron Restrictions (PDF 2) ---
+        if (isCargo) {
+            const concourse = Object.keys(CONCOURSE_LAYOUT).find(c => CONCOURSE_LAYOUT[c].includes(targetPosition)) || '';
+            if (isContactStand(targetPosition) && !concourse.includes('CARGO')) {
+                reasons.push(`Kargo uçuşu yolcu körüğüne (${targetPosition}) park edemez. Kargo Apronu kullanmalı.`);
+            }
         }
     }
 
