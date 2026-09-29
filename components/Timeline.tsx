@@ -22,6 +22,7 @@ interface TimelineLaneProps {
   flightElements: React.MutableRefObject<Map<string, HTMLDivElement>>;
   maintenanceBlocks: MaintenanceBlock[];
   onUpdateMaintenanceBlock: (blockId: string, newTimes: { startTime?: Date, endTime?: Date }) => void;
+  isSuperSetMode?: boolean;
 }
 
 const getRelatedMarsPositions = (pos: string): string[] => {
@@ -62,7 +63,8 @@ export const TimelineLane: React.FC<TimelineLaneProps> = ({
     activeFilter,
     flightElements,
     maintenanceBlocks,
-    onUpdateMaintenanceBlock
+    onUpdateMaintenanceBlock,
+    isSuperSetMode = false
 }) => {
     const laneRef = useRef<HTMLDivElement | null>(null);
 
@@ -130,7 +132,7 @@ export const TimelineLane: React.FC<TimelineLaneProps> = ({
                 );
                 if (hasMaintenanceConflict) return false;
 
-                const validation = validateFlightPlacement(draggedFlight, laneId, allFlights, ruleOverrides);
+                const validation = validateFlightPlacement(draggedFlight, laneId, allFlights, ruleOverrides, isSuperSetMode);
                 if (!validation.isValid) return false;
             }
            
@@ -141,7 +143,7 @@ export const TimelineLane: React.FC<TimelineLaneProps> = ({
             canDrop: monitor.canDrop(),
             isDragging: !!monitor.getItem(),
         }),
-    }), [onDropFlight, laneId, allFlights, ruleOverrides, maintenanceBlocks, laneType]);
+    }), [onDropFlight, laneId, allFlights, ruleOverrides, maintenanceBlocks, laneType, isSuperSetMode]);
 
     let laneBgClass = 'bg-[#3a3a3a]';
     if (isDragging) {
