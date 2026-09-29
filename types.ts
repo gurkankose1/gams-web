@@ -25,6 +25,7 @@ export interface Flight {
   departureIsDomestic?: boolean;
   departureMode?: string;
   mtow?: number;
+  isSuperSet?: boolean;
   raw_data?: any;
   history?: FlightHistoryEntry[];
 }
