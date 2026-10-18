@@ -469,8 +469,22 @@ export function runAiBridgeAllocation(
         return a.scheduledArrival.getTime() - b.scheduledArrival.getTime();
     });
 
+    // Helper: Dynamic Concourse Occupancy Ratio at time window [arrMs, depMs]
+    const getConcourseLoad = (concourse: string, arrMs: number, depMs: number): number => {
+        const stands = CONCOURSE_LAYOUT[concourse] || [];
+        if (stands.length === 0) return 1.0;
+        let occupied = 0;
+        for (const s of stands) {
+            const sched = topology.get(s);
+            if (sched && sched.intervals.some(item => arrMs < item.end && depMs > item.start)) {
+                occupied++;
+            }
+        }
+        return occupied / stands.length;
+    };
+
     // -----------------------------------------------------------------------
-    // Pass A: Narrowbody Flights -> Prefer MARS sub-stands (L/R) & single contact stands
+    // Pass A: Narrowbody Flights -> C/E Prioritization & Dynamic Concourse Load Balancing
     // -----------------------------------------------------------------------
     const overflowToRemote: Flight[] = [];
     const daytimeLongStayNarrow: Flight[] = [];
@@ -486,34 +500,78 @@ export function runAiBridgeAllocation(
         const depMs = flight.scheduledDeparture.getTime();
         const allowedConc = getAllowedBridgeConcourses(flight);
 
-        // Sub-stands first (to leave single/center stands open for wide or others)
         let placed = false;
-        const subStands: StandSchedule[] = [];
-        const singleContactStands: StandSchedule[] = [];
 
-        allowedConc.forEach(c => {
-            const stands = CONCOURSE_LAYOUT[c] || [];
-            stands.forEach(s => {
-                const sched = topology.get(s);
-                if (sched) {
-                    if (sched.isMarsSub) subStands.push(sched);
-                    else if (!sched.isMarsCenter) singleContactStands.push(sched);
+        // Step 1: Priority for Dedicated Cat C Contact Stands (C1-C4, E1-E4, B2, F2)
+        // These stands CANNOT take widebody aircraft under any circumstances.
+        // Using them first prevents widebody MARS centers from being blocked!
+        const dedicatedNarrowStands: StandSchedule[] = [];
+        const allowedDedicatedConcourses = ['Concourse C', 'Concourse E'].filter(c => allowedConc.includes(c));
+        if (allowedDedicatedConcourses.length > 0) {
+            // Balance between C and E based on current load
+            allowedDedicatedConcourses.sort((c1, c2) => getConcourseLoad(c1, arrMs, depMs) - getConcourseLoad(c2, arrMs, depMs));
+            for (const c of allowedDedicatedConcourses) {
+                for (const s of (CONCOURSE_LAYOUT[c] || [])) {
+                    const sched = topology.get(s);
+                    if (sched) dedicatedNarrowStands.push(sched);
                 }
-            });
-        });
+            }
+            // Also B2 and F2 if in allowed concourses
+            for (const s of ['B2', 'F2']) {
+                const conc = s.startsWith('B') ? 'Concourse B' : 'Concourse F';
+                if (allowedConc.includes(conc)) {
+                    const sched = topology.get(s);
+                    if (sched) dedicatedNarrowStands.push(sched);
+                }
+            }
 
-        // 1. Try Sub-stands
-        for (const sched of subStands) {
-            if (canFitOnStand(sched, arrMs, depMs, false, topology)) {
-                placeOnStand(sched, arrMs, depMs, flight.id);
-                flightUpdates.set(flight.id, sched.stand);
-                placed = true;
-                break;
+            for (const sched of dedicatedNarrowStands) {
+                if (canFitOnStand(sched, arrMs, depMs, false, topology)) {
+                    placeOnStand(sched, arrMs, depMs, flight.id);
+                    flightUpdates.set(flight.id, sched.stand);
+                    placed = true;
+                    break;
+                }
             }
         }
 
-        // 2. Try single non-MARS contact stands
+        // Step 2: Dynamic Concourse Load Balancing for MARS sub-stands (L/R)
         if (!placed) {
+            // Sort allowed concourses by least loaded first in this time window
+            const balancedConcourses = [...allowedConc].sort((c1, c2) => {
+                return getConcourseLoad(c1, arrMs, depMs) - getConcourseLoad(c2, arrMs, depMs);
+            });
+
+            for (const conc of balancedConcourses) {
+                const stands = CONCOURSE_LAYOUT[conc] || [];
+                // Try MARS sub-stands (L/R) in this concourse first
+                for (const s of stands) {
+                    const sched = topology.get(s);
+                    if (sched && sched.isMarsSub && canFitOnStand(sched, arrMs, depMs, false, topology)) {
+                        placeOnStand(sched, arrMs, depMs, flight.id);
+                        flightUpdates.set(flight.id, sched.stand);
+                        placed = true;
+                        break;
+                    }
+                }
+                if (placed) break;
+            }
+        }
+
+        // Step 3: Single contact stands (e.g. Concourse D or A9) only as fallback
+        if (!placed) {
+            const singleContactStands: StandSchedule[] = [];
+            const balancedConcourses = [...allowedConc].sort((c1, c2) => {
+                return getConcourseLoad(c1, arrMs, depMs) - getConcourseLoad(c2, arrMs, depMs);
+            });
+            for (const conc of balancedConcourses) {
+                for (const s of (CONCOURSE_LAYOUT[conc] || [])) {
+                    const sched = topology.get(s);
+                    if (sched && !sched.isMarsSub && !sched.isMarsCenter && !dedicatedNarrowStands.includes(sched)) {
+                        singleContactStands.push(sched);
+                    }
+                }
+            }
             for (const sched of singleContactStands) {
                 if (canFitOnStand(sched, arrMs, depMs, false, topology)) {
                     placeOnStand(sched, arrMs, depMs, flight.id);
@@ -533,7 +591,7 @@ export function runAiBridgeAllocation(
     overflowToRemote.push(...daytimeLongStayNarrow);
 
     // -----------------------------------------------------------------------
-    // Pass B: Widebody Flights -> Non-MARS contact stands & MARS center stands
+    // Pass B: Widebody Flights -> Concourse Balancing, Single Wide Stands & MARS Center Stands
     // -----------------------------------------------------------------------
     const daytimeLongStayWide: Flight[] = [];
 
@@ -548,10 +606,14 @@ export function runAiBridgeAllocation(
             return;
         }
 
+        const balancedConc = [...allowedConc].sort((c1, c2) => {
+            return getConcourseLoad(c1, arrMs, depMs) - getConcourseLoad(c2, arrMs, depMs);
+        });
+
         const singleCandidateStands: StandSchedule[] = [];
         const centerCandidateStands: StandSchedule[] = [];
 
-        allowedConc.forEach(c => {
+        balancedConc.forEach(c => {
             const stands = CONCOURSE_LAYOUT[c] || [];
             stands.forEach(s => {
                 const sched = topology.get(s);
@@ -625,9 +687,45 @@ export function runAiBridgeAllocation(
     overflowToRemote.push(...daytimeLongStayWide);
 
     // -----------------------------------------------------------------------
+    // Pass B.2: "Eğer Boş Yer Kalırsa" - Remaining narrowbody turnarounds fill idle widebody contact stands
+    // -----------------------------------------------------------------------
+    const shortStayOverflowNarrow = overflowToRemote.filter(f => getDurationMins(f) / 60 <= 3.5);
+    shortStayOverflowNarrow.sort((a, b) => getDurationMins(a) - getDurationMins(b));
+
+    const remainingPlacedNarrowIds = new Set<string>();
+
+    for (const narrowFlight of shortStayOverflowNarrow) {
+        const arrMs = narrowFlight.scheduledArrival.getTime();
+        const depMs = narrowFlight.scheduledDeparture.getTime();
+        const allowedConc = getAllowedBridgeConcourses(narrowFlight);
+
+        const candidateWideStands: StandSchedule[] = [];
+        allowedConc.forEach(c => {
+            const stands = CONCOURSE_LAYOUT[c] || [];
+            stands.forEach(s => {
+                const sched = topology.get(s);
+                if (sched && (sched.concourse === 'Concourse D' || sched.isMarsCenter)) {
+                    candidateWideStands.push(sched);
+                }
+            });
+        });
+
+        for (const sched of candidateWideStands) {
+            if (canFitOnStand(sched, arrMs, depMs, false, topology)) {
+                placeOnStand(sched, arrMs, depMs, narrowFlight.id);
+                flightUpdates.set(narrowFlight.id, sched.stand);
+                remainingPlacedNarrowIds.add(narrowFlight.id);
+                break;
+            }
+        }
+    }
+
+    const finalOverflowToRemote = overflowToRemote.filter(f => !remainingPlacedNarrowIds.has(f.id));
+
+    // -----------------------------------------------------------------------
     // Pass C: Overflow Passenger Flights & Propellers -> Open Aprons (100, 200, 300)
     // -----------------------------------------------------------------------
-    const remotePassengerFlights = [...overflowToRemote, ...propFlights];
+    const remotePassengerFlights = [...finalOverflowToRemote, ...propFlights];
     remotePassengerFlights.sort((a, b) => a.scheduledArrival.getTime() - b.scheduledArrival.getTime());
 
     const openAprons = ['APRON 1', 'APRON 2', 'APRON 3', 'APRON 4', 'APRON 5', 'APRON 6', 'APRON 7'];
@@ -766,6 +864,153 @@ export function runAiBridgeAllocation(
                     }
                 }
                 if (placedBridgeStand) break;
+            }
+        }
+
+        // --- SUB-PHASE 1.5: WIDEBODY ELEVATION SWAP (Açıktaki Geniş Gövdeyi Köprüye Alma) ---
+        // Find if a short-stay remote widebody (< 3.5h) can be brought to a bridge stand by relocating
+        // 1 or 2 narrowbodies currently on that stand (or its MARS sub-stands) to empty slots on C, E, or other contact stands.
+        const currentRemoteWide = eligibleFlights.filter(f => {
+            const pos = flightUpdates.get(f.id);
+            return pos && !isContactStand(pos) && isFlightWide(f) && getDurationMins(f) / 60 <= 3.5;
+        });
+
+        currentRemoteWide.sort((a, b) => getDurationMins(a) - getDurationMins(b));
+
+        for (const remWide of currentRemoteWide) {
+            const wArr = remWide.scheduledArrival.getTime();
+            const wDep = remWide.scheduledDeparture.getTime();
+            const wAllowed = getAllowedBridgeConcourses(remWide);
+
+            let elevated = false;
+
+            for (const conc of wAllowed) {
+                for (const s of (CONCOURSE_LAYOUT[conc] || [])) {
+                    const sched = topology.get(s);
+                    if (!sched || !sched.isWideCompatible) continue;
+
+                    // Direct overlap on center stand by another flight? Skip
+                    const directOverlap = sched.intervals.some(i => wArr < i.end && wDep > i.start);
+                    if (directOverlap) continue;
+
+                    // Case A: MARS Center stand blocked by 1 or 2 narrowbodies on subL/subR
+                    if (sched.isMarsCenter && sched.marsSubStands) {
+                        const [subLName, subRName] = sched.marsSubStands;
+                        const schedL = subLName ? topology.get(subLName) : undefined;
+                        const schedR = subRName ? topology.get(subRName) : undefined;
+
+                        const blockingFlights: { flight: Flight; subSched: StandSchedule }[] = [];
+                        if (schedL) {
+                            for (const it of schedL.intervals) {
+                                if (wArr < it.end && wDep > it.start) {
+                                    const bf = eligibleFlights.find(f => f.id === it.flightId);
+                                    if (bf) blockingFlights.push({ flight: bf, subSched: schedL });
+                                }
+                            }
+                        }
+                        if (schedR) {
+                            for (const it of schedR.intervals) {
+                                if (wArr < it.end && wDep > it.start) {
+                                    const bf = eligibleFlights.find(f => f.id === it.flightId);
+                                    if (bf) blockingFlights.push({ flight: bf, subSched: schedR });
+                                }
+                            }
+                        }
+
+                        if (blockingFlights.length > 0 && blockingFlights.length <= 2) {
+                            // Test if all blocking flights can find open slots on C, E, or other contact stands
+                            const relocations: { flight: Flight; targetSched: StandSchedule }[] = [];
+                            let allCanRelocate = true;
+
+                            // Temporarily remove blocking flights
+                            for (const bf of blockingFlights) {
+                                bf.subSched.intervals = bf.subSched.intervals.filter(i => i.flightId !== bf.flight.id);
+                            }
+
+                            for (const bf of blockingFlights) {
+                                const bArr = bf.flight.scheduledArrival.getTime();
+                                const bDep = bf.flight.scheduledDeparture.getTime();
+                                const bAllowed = getAllowedBridgeConcourses(bf.flight);
+
+                                let foundTarget: StandSchedule | null = null;
+                                for (const bc of bAllowed) {
+                                    for (const bs of (CONCOURSE_LAYOUT[bc] || [])) {
+                                        if (bs === sched.stand || bs === subLName || bs === subRName) continue;
+                                        const bSched = topology.get(bs);
+                                        if (bSched && canFitOnStand(bSched, bArr, bDep, false, topology)) {
+                                            placeOnStand(bSched, bArr, bDep, bf.flight.id);
+                                            foundTarget = bSched;
+                                            break;
+                                        }
+                                    }
+                                    if (foundTarget) break;
+                                }
+
+                                if (foundTarget) {
+                                    relocations.push({ flight: bf.flight, targetSched: foundTarget });
+                                } else {
+                                    allCanRelocate = false;
+                                    break;
+                                }
+                            }
+
+                            if (allCanRelocate && canFitOnStand(sched, wArr, wDep, true, topology)) {
+                                // Remove remWide from old remote stand
+                                const oldRemote = flightUpdates.get(remWide.id);
+                                if (oldRemote) {
+                                    const oldSched = topology.get(oldRemote);
+                                    if (oldSched) {
+                                        oldSched.intervals = oldSched.intervals.filter(i => i.flightId !== remWide.id);
+                                    }
+                                }
+
+                                // Place remWide on bridge
+                                placeOnStand(sched, wArr, wDep, remWide.id);
+                                flightUpdates.set(remWide.id, sched.stand);
+
+                                // Commit relocations
+                                for (const rel of relocations) {
+                                    flightUpdates.set(rel.flight.id, rel.targetSched.stand);
+                                }
+
+                                const callsignW = remWide.departureFlightNumber || remWide.arrivalFlightNumber || remWide.id;
+                                swapDetails.push({
+                                    stand: sched.stand,
+                                    concourse: sched.concourse,
+                                    removedFlight: {
+                                        id: remWide.id,
+                                        callsign: callsignW,
+                                        acType: remWide.aircraftType || '',
+                                        durationHours: Math.round(getDurationMins(remWide) / 60 * 10) / 10
+                                    },
+                                    sentToRemote: 'BRIDGE (Elevated from Remote)',
+                                    gainedFlights: relocations.map(r => ({
+                                        id: r.flight.id,
+                                        callsign: r.flight.departureFlightNumber || r.flight.arrivalFlightNumber || r.flight.id,
+                                        acType: r.flight.aircraftType || '',
+                                        stand: r.targetSched.stand
+                                    })),
+                                    netGain: 1
+                                });
+
+                                totalSwapsPerformed++;
+                                netFlightsGained++;
+                                madeProgressInPass = true;
+                                elevated = true;
+                                break;
+                            } else {
+                                // Revert relocations
+                                for (const rel of relocations) {
+                                    rel.targetSched.intervals = rel.targetSched.intervals.filter(i => i.flightId !== rel.flight.id);
+                                }
+                                for (const bf of blockingFlights) {
+                                    placeOnStand(bf.subSched, bf.flight.scheduledArrival.getTime(), bf.flight.scheduledDeparture.getTime(), bf.flight.id);
+                                }
+                            }
+                        }
+                    }
+                }
+                if (elevated) break;
             }
         }
 
