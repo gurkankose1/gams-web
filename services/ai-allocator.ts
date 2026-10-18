@@ -554,7 +554,12 @@ export function runAiBridgeAllocation(
 
         // Step 2: Dynamic Concourse Load Balancing for MARS sub-stands (L/R) with Synchronized Pairing
         if (!placed) {
+            const isMixed = (flight.arrivalIsDomestic ?? flight.isDomestic) !== (flight.departureIsDomestic ?? flight.isDomestic);
             const balancedConcourses = [...allowedConc].sort((c1, c2) => {
+                if (isMixed) {
+                    if (c1 === 'Concourse G') return 1;
+                    if (c2 === 'Concourse G') return -1;
+                }
                 return getConcourseLoad(c1, arrMs, depMs) - getConcourseLoad(c2, arrMs, depMs);
             });
 
@@ -614,7 +619,12 @@ export function runAiBridgeAllocation(
         // Step 3: Single contact stands (e.g. Concourse D or A9) only as fallback
         if (!placed) {
             const singleContactStands: StandSchedule[] = [];
+            const isMixed = (flight.arrivalIsDomestic ?? flight.isDomestic) !== (flight.departureIsDomestic ?? flight.isDomestic);
             const balancedConcourses = [...allowedConc].sort((c1, c2) => {
+                if (isMixed) {
+                    if (c1 === 'Concourse G') return 1;
+                    if (c2 === 'Concourse G') return -1;
+                }
                 return getConcourseLoad(c1, arrMs, depMs) - getConcourseLoad(c2, arrMs, depMs);
             });
             for (const conc of balancedConcourses) {
@@ -640,8 +650,30 @@ export function runAiBridgeAllocation(
         }
     });
 
-    // Add deferred long-stay narrowbodies to overflow pool
-    overflowToRemote.push(...daytimeLongStayNarrow);
+    // Try placing deferred long-stay narrowbodies on open bridge contact stands before overflowing to remote
+    daytimeLongStayNarrow.forEach(flight => {
+        const arrMs = flight.scheduledArrival.getTime();
+        const depMs = flight.scheduledDeparture.getTime();
+        const allowedConc = getAllowedBridgeConcourses(flight);
+        let placed = false;
+
+        for (const conc of allowedConc) {
+            for (const s of (CONCOURSE_LAYOUT[conc] || [])) {
+                const sched = topology.get(s);
+                if (sched && !sched.isMarsCenter && canFitOnStand(sched, arrMs, depMs, false, topology)) {
+                    placeOnStand(sched, arrMs, depMs, flight.id);
+                    flightUpdates.set(flight.id, sched.stand);
+                    placed = true;
+                    break;
+                }
+            }
+            if (placed) break;
+        }
+
+        if (!placed) {
+            overflowToRemote.push(flight);
+        }
+    });
 
     // -----------------------------------------------------------------------
     // Pass B: Widebody Flights -> Concourse Balancing, Single Wide Stands & MARS Center Stands
