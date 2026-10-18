@@ -1838,10 +1838,10 @@ const App: React.FC<{ user: User }> = ({ user }) => {
             
             <div className="flex-grow flex flex-col overflow-hidden">
                 <div ref={mainContentRef} className="flex-grow overflow-auto">
-                    <div className="flex relative">
-                        {/* Left Sticky Panel */}
-                        <div className="w-48 flex-shrink-0 bg-[#2b2b2b] sticky left-0 z-30 flex flex-col border-r border-gray-600/70">
-                            <div className="h-10 border-b-2 border-r border-gray-600 flex items-center justify-between px-2 font-bold text-sm sticky bg-[#2b2b2b] text-amber-400 z-[38]" style={{top: `${subHeaderTop}px`}}>
+                    <div className="flex relative w-max min-w-full">
+                        {/* Left Sticky Panel (Dondurulmuş Stant Başlıkları Kolonu) */}
+                        <div className="w-48 flex-shrink-0 bg-[#2b2b2b] sticky left-0 z-30 flex flex-col border-r border-gray-600 shadow-[4px_0_12px_rgba(0,0,0,0.6)] select-none">
+                            <div className="h-10 border-b-2 border-r border-gray-600 flex items-center justify-between px-2 font-bold text-sm sticky bg-[#2b2b2b] text-amber-400 z-[45]" style={{top: `${subHeaderTop}px`}}>
                                 <span>{currentView === 'parking' ? 'Pozisyon' : 'Gate'}</span>
                                 {currentView === 'parking' && (
                                     <button 
@@ -1860,7 +1860,7 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                                     </button>
                                 )}
                             </div>
-                            <div className="flex-shrink-0 sticky bg-[#2b2b2b] z-[35]" style={{top: `${poolTop}px`}}>
+                            <div className="flex-shrink-0 sticky bg-[#2b2b2b] z-[40]" style={{top: `${poolTop}px`}}>
                                 <div onClick={() => setPoolCollapsed(!isPoolCollapsed)} className="border-b border-r border-gray-600 flex items-center justify-center text-xs font-semibold text-amber-400 p-2 text-center select-none cursor-pointer bg-[#2b2b2b]" style={{ height: `${isPoolCollapsed ? COLLAPSED_POOL_HEIGHT : flightPoolHeight}px`, transition: 'height 0.2s ease' }}>
                                     <span className="inline-block w-4 text-center mr-1">{isPoolCollapsed ? '▸' : '▾'}</span>
                                     <span className="flex-grow font-bold">ATANMAMIŞ UÇUŞLAR</span>
@@ -1870,7 +1870,7 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                             {currentView === 'parking' ? (
                                 Object.entries(CONCOURSE_LAYOUT).map(([concourseName, positions]) => (
                                 <div key={concourseName}>
-                                    <div onClick={() => toggleConcourse(concourseName)} className="h-10 border-b border-r border-gray-600 bg-[#252525] text-amber-400 font-bold text-sm sticky z-[25] cursor-pointer select-none flex items-center px-3 truncate" style={{ top: `${concourseHeaderTop}px` }}>
+                                    <div onClick={() => toggleConcourse(concourseName)} className="h-10 border-b border-r border-gray-600 bg-[#252525] text-amber-400 font-bold text-sm sticky z-[35] cursor-pointer select-none flex items-center px-3 truncate" style={{ top: `${concourseHeaderTop}px` }}>
                                         <span className="inline-block w-4 text-center">{collapsedConcourses[concourseName] ? '▸' : '▾'}</span>
                                         {concourseName}
                                     </div>
