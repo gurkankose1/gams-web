@@ -35,6 +35,13 @@
    - **APRON 3 (300 - 312):** 300-312 pozisyonları dar gövde; 313-315 geniş gövde olarak kilitlendi.
    - **APRON 6 & APRON 7 (601-604, 701-704):** Kesin olarak yalnızca Dar Gövde pozisyonları olarak sınırlandırıldı.
    - `buildStandTopology`, `canFitOnStand`, `Pass C` ve `Safety Net` seviyesinde hiçbir istisna bırakılmadan resmi AMS izin kuralları uygulandı.
-5. **GitHub & Canlı Dağıtım:**
-   - Commit başarıyla GitHub'a gönderildi (`node single_commit_push.js`).
-   - Vercel üzerinde canlıya alındı (`vercel --prod --yes`).
+5. **OCC AI Co-Pilot ve Gelir Hesaplama Güncellemesi (18.10.2026):**
+   - **Maktu KOİ Gelir Modeli:** Kullanıcı talimatı doğrultusunda gelir hesaplayıcı (`services/revenue-calculator.ts`) sadece 5 maktu DHMİ hizmetini (PBB, GPU, PCA, Su, VDGS) hesaplayacak şekilde sınırlandı. Konma, Konaklama ve Yolcu Servis ücretleri sıfırlandı.
+   - **OCC AI Co-Pilot Motoru (`services/ai-copilot.ts` & `AiCopilotModal.tsx`):**
+     - Doğrudan Boşluk Doldurma (`DIRECT_GAP_FILL`), Dar/Geniş Konsolidasyonu (`NARROW_CONSOLIDATION`) ve İç Hat Tahliye Takası (`DOMESTIC_LIBERATION_SWAP`) eklendi.
+     - **İç Hat Tahliye Takası (Concourse G Liberation):** Karma uçuşlar (D-I / I-D) Concourse G yerine Concourse A-F dış hat iskelelerine yönlendirilerek, Concourse G'nin 10 MARS körüğü açıkta bekleyen Saf İç Hat (D-D) uçuşları için rezerve edildi.
+     - **OCC Kapasite Teşhis Analizi:** Co-Pilot modali içine "Kapasite Teşhisi" sekmesi eklenerek, kalan uçakların neden açıkta kaldığı (487 uçak > 4 saat kalış / Sıfır-tow kuralı, Concourse G doygunluğu, Kargo, Genel Havacılık, Turboprop uyumsuzluğu) şeffafça modellendi.
+6. **GitHub & Canlı Dağıtım:**
+   - Değişiklikler tek commit halinde GitHub `main` dalına pushlandı (`node single_commit_push.js`).
+   - Vercel GitHub entegrasyonu ile otomatik build ve dağıtım tetiklendi.
+
