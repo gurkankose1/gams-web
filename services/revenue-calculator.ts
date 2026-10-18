@@ -79,7 +79,7 @@ export const getAircraftMtow = (flight: Flight): number => {
     }
   }
 
-  const isWideBody = WIDE_BODY_AIRCRAFT.has(cleanType) || WIDE_BODY_AIRCRAFT.has(flight.aircraftType);
+  const isWideBody = flight.acCategory === 'D' || flight.acCategory === 'E' || flight.acCategory === 'F' || WIDE_BODY_AIRCRAFT.has(cleanType) || WIDE_BODY_AIRCRAFT.has(flight.aircraftType);
   return isWideBody ? 240 : 79;
 };
 
@@ -133,7 +133,7 @@ export const calculateRevenue = (flight: Flight): RevenueDetails => {
     ? (flight.arrivalIsDomestic && flight.departureIsDomestic)
     : flight.isDomestic;
 
-  const isWideBody = WIDE_BODY_AIRCRAFT.has(flight.aircraftType?.toUpperCase().trim() || '');
+  const isWideBody = flight.acCategory === 'D' || flight.acCategory === 'E' || flight.acCategory === 'F' || WIDE_BODY_AIRCRAFT.has(flight.aircraftType?.toUpperCase().trim() || '');
 
   // 1. Landing Fee (Konma)
   const landingRateEur = isDomestic ? 4.50 : 10.50;

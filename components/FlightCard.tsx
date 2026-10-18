@@ -173,12 +173,12 @@ const FlightCard: React.FC<FlightCardProps> = ({
     preview(getEmptyImage(), { captureDraggingState: true });
   }, [preview]);
   
-  const isWideBody = WIDE_BODY_AIRCRAFT.has(flight.aircraftType);
+  const isWideBody = flight.acCategory === 'D' || flight.acCategory === 'E' || flight.acCategory === 'F' || WIDE_BODY_AIRCRAFT.has(flight.aircraftType?.toUpperCase().trim() || '');
   const isSpecial = flight.departureMode === 'F';
 
   const cardStyle = useMemo(() => {
     const isNoAc = !flight.aircraftType || flight.aircraftType.trim() === '' || flight.isTransparent || flight.aircraftType.toUpperCase() === 'NAN';
-    const isWideBody = WIDE_BODY_AIRCRAFT.has(flight.aircraftType?.toUpperCase().trim());
+    const isWideBody = flight.acCategory === 'D' || flight.acCategory === 'E' || flight.acCategory === 'F' || WIDE_BODY_AIRCRAFT.has(flight.aircraftType?.toUpperCase().trim() || '');
     const isUnregistered = !flight.regNo || flight.regNo.trim() === '' || flight.regNo.toUpperCase().startsWith('ER') || flight.regNo.toUpperCase() === 'DUMMY' || flight.regNo.toUpperCase() === 'NONE';
 
     let style: React.CSSProperties;

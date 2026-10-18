@@ -40,17 +40,19 @@ export function getAircraftCategory(aircraftType: string): AircraftCategory {
     const cleanType = aircraftType.toUpperCase().trim();
 
     // Heavy / Super Widebody (Category F)
-    if (['B748', 'B744', 'B747', '748', '744', '747', 'A380', '380', 'AN124', 'A124'].includes(cleanType)) {
+    if (['B748', 'B744', 'B747', '748', '744', '747', '74Y', 'A380', 'A388', '380', '388', 'AN124', 'A124'].includes(cleanType)) {
         return 'F';
     }
 
     // Widebody (Category D / E)
-    if (['A330', 'A332', 'A333', 'A338', 'A339', '330', '332', '333',
-         'A340', 'A343', 'A345', 'A346', '340',
-         'A359', 'A35K', '359', '351',
-         'B767', 'B762', 'B763', 'B764', '763',
-         'B777', 'B772', 'B77W', 'B77L', 'B77X', '77W', '772', '77L',
-         'B787', 'B788', 'B789', 'B781', '788', '789'].includes(cleanType)) {
+    if (['A330', 'A332', 'A333', 'A338', 'A339', '330', '332', '333', '338', '339',
+         'A340', 'A342', 'A343', 'A345', 'A346', '340', '342', '343', '345', '346',
+         'A359', 'A35K', 'A350', '359', '351', '350',
+         'B767', 'B762', 'B763', 'B764', '767', '762', '763', '764',
+         'B777', 'B772', 'B77W', 'B77L', 'B773', 'B77X', '77W', '772', '77L', '773', '77X', '777',
+         'B787', 'B788', 'B789', 'B781', '787', '788', '789', '781',
+         'A306', 'A310', 'A300', '306', '310', '300',
+         'IL96', 'MD11', 'DC10'].includes(cleanType)) {
         return 'E';
     }
 
@@ -155,6 +157,7 @@ export function isInternationalConcourse(pos: string): boolean {
 }
 
 export const CAT_F_HEAVY_STANDS = new Set([
+    'A2', // Primary Contact Gate for A380 / Super Heavy (EK123/EK124)
     '215', '216', '217', '218', '219',
     '313', '314', '315', '316', '317', '318', '319',
     'H10', 'H11', 'H12', 'H13', 'H14',
@@ -162,6 +165,13 @@ export const CAT_F_HEAVY_STANDS = new Set([
     'H30', 'H31', 'H32', 'H33', 'H34', 'H35', 'H36',
     'H40', 'H41', 'H42', 'H43', 'H44', 'H45', 'H46',
     'H50', 'H51', 'K53', 'MTA'
+]);
+
+export const NARROW_ONLY_CONTACT_STANDS = new Set([
+    'C1', 'C2', 'C3', 'C4',
+    'E1', 'E2', 'E3', 'E4',
+    'D1', 'D2', 'D3', 'D4', 'D5',
+    'B2', 'F2'
 ]);
 
 // ----------------------------------------------------------------------
@@ -189,8 +199,8 @@ export function validateFlightPlacement(
     const isSuperSet = flight.isSuperSet === true || globalSuperSet === true;
 
     const category = getAircraftCategory(flight.aircraftType);
-    const isWide = category === 'D' || category === 'E' || category === 'F';
-    const isHeavy = category === 'F';
+    const isWide = flight.acCategory === 'D' || flight.acCategory === 'E' || flight.acCategory === 'F' || category === 'D' || category === 'E' || category === 'F';
+    const isHeavy = flight.acCategory === 'F' || category === 'F';
     const isWinglet = isWingletAircraft(flight.aircraftType, flight.raw_data);
     const isProp = isPropellerAircraft(flight.aircraftType);
     const isCargo = isCargoFlight(flight);
@@ -200,13 +210,13 @@ export function validateFlightPlacement(
 
     // --- RULE A: MARS / Widebody Stand Restriction (PDF 3) ---
     const concourse = Object.keys(CONCOURSE_LAYOUT).find(c => CONCOURSE_LAYOUT[c].includes(targetPosition));
-    const isNarrowOnlyContact = concourse === 'Concourse C' || concourse === 'Concourse E' || targetPosition === 'B2' || targetPosition === 'F2';
+    const isNarrowOnlyContact = concourse === 'Concourse C' || concourse === 'Concourse E' || NARROW_ONLY_CONTACT_STANDS.has(targetPosition);
     const mars = getMarsRelatedPositions(targetPosition);
     if (isWide) {
         if (mars.isSubStand) {
             reasons.push(`Geniş gövdeli uçak (${flight.aircraftType}) L/R alt pozisyona (${targetPosition}) park edemez. Center pozisyona (${mars.center}) verilmeli.`);
         } else if (isNarrowOnlyContact) {
-            reasons.push(`Geniş gövdeli uçak (${flight.aircraftType}) dar gövde (${concourse}) körük pozisyonuna (${targetPosition}) park edemez. C ve E iskeleleri yalnızca dar gövde içindir.`);
+            reasons.push(`Geniş gövdeli uçak (${flight.aircraftType}) dar gövde körük pozisyonuna (${targetPosition}) park edemez. C, E ve D1-D5 iskeleleri yalnızca dar gövde (Cat C) içindir.`);
         }
     }
 

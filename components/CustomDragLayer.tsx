@@ -42,7 +42,7 @@ export const CustomDragLayer: React.FC = () => {
     const y = currentOffset.y;
 
     const flight = item.flight;
-    const isWideBody = WIDE_BODY_AIRCRAFT.has(flight.aircraftType?.toUpperCase().trim() || '');
+    const isWideBody = flight.acCategory === 'D' || flight.acCategory === 'E' || flight.acCategory === 'F' || WIDE_BODY_AIRCRAFT.has(flight.aircraftType?.toUpperCase().trim() || '');
     const isUnregistered = !flight.regNo || flight.regNo.trim() === '' || flight.regNo.toUpperCase().startsWith('ER') || flight.regNo.toUpperCase() === 'DUMMY' || flight.regNo.toUpperCase() === 'NONE';
 
     let cardBg = '#2e3984'; // Narrow body default: Koyu Mavi

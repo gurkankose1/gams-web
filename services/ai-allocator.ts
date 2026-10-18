@@ -118,10 +118,9 @@ export function isFlightBridgeEligible(f: Flight): boolean {
     // 6. Propeller / Turboprop (ATR72, DH8D etc.) -> Excluded
     if (isPropellerAircraft(f.aircraftType)) return false;
 
-    // 7. Heavy Cat F without bridge access
-    const cat = f.acCategory || getAircraftCategory(f.aircraftType);
-    if (cat === 'F') return false;
-
+    // 7. Heavy Cat F without bridge access:
+    // Cargo Cat F (e.g. B748) is already excluded above by isCargoModeFlight.
+    // Passenger Cat F flights (e.g. Emirates EK123/124 A388) have bridge access via Stand A2.
     return true;
 }
 
@@ -278,17 +277,17 @@ function buildStandTopology(): Map<string, StandSchedule> {
 
         // Widebody compatibility:
         // - MARS Center stands: Widebody compatible
-        // - Concourse D (D1-D17) & single wide contact stands: Widebody compatible
-        // - Concourse C (C1-C4) and Concourse E (E1-E4): Strictly Narrowbody (Cat C) only! ZERO widebody allowed!
+        // - Concourse D: D6-D17 & single wide contact stands: Widebody compatible
+        // - Concourse C (C1-C4), Concourse E (E1-E4), and D1-D5: Strictly Narrowbody (Cat C) only! ZERO widebody allowed!
         // - MARS sub-stands (L/R) & B2, F2: Strictly Narrowbody (Cat C) only!
         const isContact = isContactStand(stand);
-        const isNarrowOnlyContact = concourse === 'Concourse C' || concourse === 'Concourse E' || stand === 'B2' || stand === 'F2';
+        const isNarrowOnlyContact = concourse === 'Concourse C' || concourse === 'Concourse E' || stand === 'B2' || stand === 'F2' || ['D1', 'D2', 'D3', 'D4', 'D5'].includes(stand);
         let isWideCompatible = false;
         if (isMarsCenter) {
             isWideCompatible = true;
         } else if (!isMarsSub && !isNarrowOnlyContact) {
             if (concourse === 'Concourse D') {
-                isWideCompatible = true;
+                isWideCompatible = !['D1', 'D2', 'D3', 'D4', 'D5'].includes(stand);
             } else if (stand === 'A9' || stand === 'B4' || (stand.startsWith('B') && parseInt(stand.slice(1)) >= 13 && parseInt(stand.slice(1)) <= 17) || (stand.startsWith('F') && parseInt(stand.slice(1)) >= 14 && parseInt(stand.slice(1)) <= 19)) {
                 isWideCompatible = true;
             } else if (!isContact) {
@@ -317,11 +316,18 @@ function canFitOnStand(
     arrMs: number,
     depMs: number,
     isWide: boolean,
-    topology: Map<string, StandSchedule>
+    topology: Map<string, StandSchedule>,
+    isHeavy: boolean = false
 ): boolean {
     // 1. Physical compatibility
     if (isWide && schedule.isMarsSub) return false;
     if (isWide && !schedule.isWideCompatible) return false;
+    if (isHeavy) {
+        const baseStand = schedule.stand.replace(/[LR]$/, '');
+        if (!CAT_F_HEAVY_STANDS.has(baseStand) && !CAT_F_HEAVY_STANDS.has(schedule.stand)) {
+            return false;
+        }
+    }
 
     // 2. Direct overlap on this stand (buffer = 0)
     for (const item of schedule.intervals) {
@@ -426,8 +432,14 @@ export function runAiBridgeAllocation(
     // Narrowbodies have highest priority to maximize MARS sub-stands and contact stands.
     // Shorter turnarounds packed first to maximize total flights per stand.
     const isFlightWide = (f: Flight): boolean => {
-        const cat = f.acCategory ? f.acCategory.toUpperCase().trim() : getAircraftCategory(f.aircraftType);
+        if (f.acCategory === 'E' || f.acCategory === 'D' || f.acCategory === 'F') return true;
+        const cat = getAircraftCategory(f.aircraftType);
         return cat === 'E' || cat === 'D' || cat === 'F';
+    };
+
+    const isFlightHeavy = (f: Flight): boolean => {
+        if (f.acCategory === 'F') return true;
+        return getAircraftCategory(f.aircraftType) === 'F';
     };
 
     const getDurationMins = (f: Flight): number => {
@@ -502,7 +514,7 @@ export function runAiBridgeAllocation(
 
         let placed = false;
 
-        // Step 1: Priority for Dedicated Cat C Contact Stands (C1-C4, E1-E4, B2, F2)
+        // Step 1: Priority for Dedicated Cat C Contact Stands (C1-C4, E1-E4, D1-D5, B2, F2)
         // These stands CANNOT take widebody aircraft under any circumstances.
         // Using them first prevents widebody MARS centers from being blocked!
         const dedicatedNarrowStands: StandSchedule[] = [];
@@ -516,22 +528,29 @@ export function runAiBridgeAllocation(
                     if (sched) dedicatedNarrowStands.push(sched);
                 }
             }
-            // Also B2 and F2 if in allowed concourses
-            for (const s of ['B2', 'F2']) {
-                const conc = s.startsWith('B') ? 'Concourse B' : 'Concourse F';
-                if (allowedConc.includes(conc)) {
-                    const sched = topology.get(s);
-                    if (sched) dedicatedNarrowStands.push(sched);
-                }
+        }
+        // D1 through D5 in Concourse D are strictly narrowbody only!
+        if (allowedConc.includes('Concourse D')) {
+            for (const s of ['D1', 'D2', 'D3', 'D4', 'D5']) {
+                const sched = topology.get(s);
+                if (sched) dedicatedNarrowStands.push(sched);
             }
+        }
+        // Also B2 and F2 if in allowed concourses
+        for (const s of ['B2', 'F2']) {
+            const conc = s.startsWith('B') ? 'Concourse B' : 'Concourse F';
+            if (allowedConc.includes(conc)) {
+                const sched = topology.get(s);
+                if (sched) dedicatedNarrowStands.push(sched);
+            }
+        }
 
-            for (const sched of dedicatedNarrowStands) {
-                if (canFitOnStand(sched, arrMs, depMs, false, topology)) {
-                    placeOnStand(sched, arrMs, depMs, flight.id);
-                    flightUpdates.set(flight.id, sched.stand);
-                    placed = true;
-                    break;
-                }
+        for (const sched of dedicatedNarrowStands) {
+            if (canFitOnStand(sched, arrMs, depMs, false, topology)) {
+                placeOnStand(sched, arrMs, depMs, flight.id);
+                flightUpdates.set(flight.id, sched.stand);
+                placed = true;
+                break;
             }
         }
 
@@ -628,10 +647,11 @@ export function runAiBridgeAllocation(
         });
 
         let placed = false;
+        const isHeavy = isFlightHeavy(flight);
 
         // Try single contact stands first (e.g. Concourse D)
         for (const sched of singleCandidateStands) {
-            if (canFitOnStand(sched, arrMs, depMs, true, topology)) {
+            if (canFitOnStand(sched, arrMs, depMs, true, topology, isHeavy)) {
                 placeOnStand(sched, arrMs, depMs, flight.id);
                 flightUpdates.set(flight.id, sched.stand);
                 placed = true;
@@ -643,7 +663,7 @@ export function runAiBridgeAllocation(
         // Try MARS Center stands ONLY IF it doesn't block 2+ overflow narrowbodies!
         if (!placed) {
             for (const sched of centerCandidateStands) {
-                if (canFitOnStand(sched, arrMs, depMs, true, topology)) {
+                if (canFitOnStand(sched, arrMs, depMs, true, topology, isHeavy)) {
                     // Check opportunity cost against narrowbodies waiting in overflowToRemote
                     if (sched.marsSubStands && sched.marsSubStands.length >= 2) {
                         const [subL, subR] = sched.marsSubStands;
@@ -1202,8 +1222,9 @@ export function runAiBridgeAllocation(
         if (!isContactStand(pos)) return;
 
         const isWide = isFlightWide(f);
+        const isHeavy = isFlightHeavy(f);
         const concourse = Object.keys(CONCOURSE_LAYOUT).find(c => CONCOURSE_LAYOUT[c].includes(pos)) || '';
-        const isNarrowOnly = concourse === 'Concourse C' || concourse === 'Concourse E' || pos === 'B2' || pos === 'F2' || pos.endsWith('L') || pos.endsWith('R');
+        const isNarrowOnly = concourse === 'Concourse C' || concourse === 'Concourse E' || pos === 'B2' || pos === 'F2' || ['D1', 'D2', 'D3', 'D4', 'D5'].includes(pos) || pos.endsWith('L') || pos.endsWith('R');
 
         let needsDemotion = false;
 
@@ -1211,6 +1232,15 @@ export function runAiBridgeAllocation(
         if (isWide && isNarrowOnly) {
             console.warn(`[SAFETY NET] Widebody violation prevented on ${pos} for flight ${f.id}. Demoting to remote.`);
             needsDemotion = true;
+        }
+
+        // Rule 1.5: Heavy Cat F violation prevented on non-heavy stands
+        if (isHeavy) {
+            const basePos = pos.replace(/[LR]$/, '');
+            if (!CAT_F_HEAVY_STANDS.has(basePos) && !CAT_F_HEAVY_STANDS.has(pos)) {
+                console.warn(`[SAFETY NET] Heavy Cat F violation prevented on ${pos} for flight ${f.id}. Demoting to remote.`);
+                needsDemotion = true;
+            }
         }
 
         // Rule 2: Pier G vs International
