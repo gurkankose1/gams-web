@@ -177,8 +177,11 @@ export function calculateBridgeUtilization(
             return;
         }
 
-        const cat = f.acCategory || getAircraftCategory(f.aircraftType);
-        if (cat === 'F') {
+        if (isSpecialOrMaintenanceFlight(f)) {
+            return;
+        }
+
+        if (!isPassengerFlight(f)) {
             return;
         }
 
