@@ -28,6 +28,13 @@
    - **Karma Uçuşlar (Dış-İç / İç-Dış):** Katı Concourse G zorunluluğu kaldırıldı. Saf Dış (Dış-Dış) A-F, Saf İç (İç-İç) G körüğüne giderken, karma uçuşlar (Houston->İzmir, Toronto->Antalya vb.) hem Dış (A-F) hem İç (G) körüklerine serbestçe atanabilir hale getirildi.
    - **Gündüz 3.5 Saat Barajı Kaldırıldı:** Boş köprü varken 4-5 saatlik uçakların zorla açığa atılması engellendi. Kısa dönüşler yine önceliklidir ancak köprüde boşluk varsa uzun kalışlı uçaklar da köprüyü doldurur.
    - **Senkronize MARS Eşleme (Synchronized Pairing):** MARS L ve R pozisyonlarına benzer kalkış saatlerine sahip dar gövdeler eşleştirilerek, iki uçağın aynı anda kalkması ve arkasından gelen Geniş Gövdeye (B77W, B789, A350) Center pozisyonunun blok halinde açılması sağlandı.
-4. **GitHub & Canlı Dağıtım:**
+4. **Açık Pozisyonlarda AMS Uçak Tipi - Stand Eşleşmeleri Kuralı (18.10.2026 - Gece):**
+   - **Resmi AMS Stand İzinleri Entegrasyonu (`stand_allocation_permission.pdf`):** Sistemdeki tüm açık ve körük pozisyonları, İstanbul Havalimanı (IST/IGA) resmi AMS kurallarına göre bağlandı.
+   - **APRON 1 (100 - 132 & 149):** 100-132 ve 149 pozisyonlarının resmi AMS kurallarına göre **yalnızca Dar Gövde (Cat C)** olduğu doğrulandı ve geniş gövdelerin bu pozisyonlara girişi tamamen engellendi. APRON 1'de yalnızca 133-148 arası MARS Center pozisyonlarının geniş gövde alabildiği sisteme işlendi.
+   - **APRON 2 (200 - 214):** 200-214 pozisyonları yalnızca Dar Gövde; 215-226 ve D19-D20 geniş gövde olarak kilitlendi.
+   - **APRON 3 (300 - 312):** 300-312 pozisyonları dar gövde; 313-315 geniş gövde olarak kilitlendi.
+   - **APRON 6 & APRON 7 (601-604, 701-704):** Kesin olarak yalnızca Dar Gövde pozisyonları olarak sınırlandırıldı.
+   - `buildStandTopology`, `canFitOnStand`, `Pass C` ve `Safety Net` seviyesinde hiçbir istisna bırakılmadan resmi AMS izin kuralları uygulandı.
+5. **GitHub & Canlı Dağıtım:**
    - Commit başarıyla GitHub'a gönderildi (`node single_commit_push.js`).
    - Vercel üzerinde canlıya alındı (`vercel --prod --yes`).
