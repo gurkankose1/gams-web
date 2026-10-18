@@ -224,7 +224,8 @@ const parseTurnaroundDataWithMapping = (rawData: any[], mapping: Mapping, startD
         const rawDepMode = m.depMode ? row[m.depMode] : (row['I/D.1'] ?? row['I/D_1'] ?? row['Dep I/D'] ?? row['DepMod']);
         const isArrDom = parseDomesticFlag(rawArrMode, origin);
         const isDepDom = parseDomesticFlag(rawDepMode, destination);
-        const departureMode = rawDepMode ? String(rawDepMode).toUpperCase().trim() : undefined;
+        const rawActualDepTrafficMode = String(row['Mod_1'] || row['Mod.1'] || row['DepMod'] || row['Dep Mod'] || row['Mod'] || rawTrafficMode || '').toUpperCase().trim();
+        const departureMode = rawActualDepTrafficMode || undefined;
         
         const arrGateStr = m.arrGate ? String(row[m.arrGate] ?? '').toUpperCase().trim() || null : null;
         const depGateStr = m.depGate ? String(row[m.depGate] ?? '').toUpperCase().trim() || null : null;
@@ -1668,7 +1669,7 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                         <HeaderRevenueSummary flights={flights} />
 
                         {/* Bridge Utilization Rate KPI Badge */}
-                        {bridgeStats.eligibleFlightsCount > 0 && (
+                        {flights.length > 0 && (
                             <div className="bg-gradient-to-r from-indigo-950/90 to-purple-950/90 border border-indigo-400/50 rounded-lg px-2.5 py-1 flex items-center space-x-1.5 shadow select-none" title={`Kalkış (ATD) Bazlı Köprü Kullanım Oranı: Seçili dönemde kalkışı olan ${bridgeStats.eligibleFlightsCount} tarifeli/uygun yolcu uçağının ${bridgeStats.bridgeAssignedCount} tanesi köprüye (PBB Pier A-G) bağlandı.`}>
                                 <span className="text-indigo-300 font-bold">🌉 Köprü Oranı:</span>
                                 <span className="text-emerald-300 font-black text-sm">%{bridgeStats.bridgeRate.toFixed(1)}</span>

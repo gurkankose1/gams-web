@@ -73,9 +73,33 @@ export function isNoAcFlight(f: Flight): boolean {
     return false;
 }
 
+export function getEffectiveTrafficMode(f: Flight): string {
+    const raw = f.raw_data || {};
+    const excelDepMod = raw['Mod_1'] || raw['Mod.1'] || raw['DepMod'] || raw['Dep Mod'];
+    if (excelDepMod) return String(excelDepMod).toUpperCase().trim();
+
+    const dm = (f.departureMode || '').toUpperCase().trim();
+    // 'I' ve 'D' havalimanı raporlarında genellikle İç/Dış Hat (I/D) sütunundan gelir, trafik modu değildir
+    if (dm && dm !== 'I' && dm !== 'D') return dm;
+
+    const tm = (f.trafficMode || '').toUpperCase().trim();
+    if (tm && tm !== 'I' && tm !== 'D') return tm;
+
+    // Standart havayolu uçuşları için varsayılan tarifeli yolcu (J)
+    return 'J';
+}
+
 export function isGeneralAviationFlight(f: Flight): boolean {
-    const mode = (f.trafficMode || f.departureMode || '').toUpperCase().trim();
-    if (GENERAL_AVIATION_MODES.has(mode)) return true;
+    const raw = f.raw_data || {};
+    const dMode = raw['Mod_1'] || raw['Mod.1'] || raw['DepMod'] || raw['Dep Mod'];
+    if (dMode && GENERAL_AVIATION_MODES.has(String(dMode).toUpperCase().trim())) return true;
+
+    const dm = (f.departureMode || '').toUpperCase().trim();
+    if (dm && dm !== 'D' && dm !== 'I' && GENERAL_AVIATION_MODES.has(dm)) return true;
+
+    const tm = (f.trafficMode || '').toUpperCase().trim();
+    if (tm && tm !== 'D' && tm !== 'I' && GENERAL_AVIATION_MODES.has(tm)) return true;
+
     const arrNo = (f.arrivalFlightNumber || '').toUpperCase().trim();
     const depNo = (f.departureFlightNumber || '').toUpperCase().trim();
     const airline = (f.airline || '').toUpperCase().trim();
@@ -84,13 +108,13 @@ export function isGeneralAviationFlight(f: Flight): boolean {
 }
 
 export function isCargoModeFlight(f: Flight): boolean {
-    const mode = (f.trafficMode || f.departureMode || '').toUpperCase().trim();
+    const mode = getEffectiveTrafficMode(f);
     if (CARGO_MODES.has(mode)) return true;
     return isCargoFlight(f);
 }
 
 export function isSpecialOrMaintenanceFlight(f: Flight): boolean {
-    const mode = (f.trafficMode || f.departureMode || '').toUpperCase().trim();
+    const mode = getEffectiveTrafficMode(f);
     return SPECIAL_MAINTENANCE_MODES.has(mode);
 }
 
@@ -98,13 +122,12 @@ export function isPassengerFlight(f: Flight): boolean {
     if (isCargoModeFlight(f)) return false;
     if (isGeneralAviationFlight(f)) return false;
     if (isSpecialOrMaintenanceFlight(f)) return false;
-    // ATD kalkış hesabı için gidiş modu (departureMode) referanstır.
-    // Örn: J/P modundaki bir uçuş geliş yolculu (J) olsa da gidiş ferry/boş intikal (P) olduğundan gidişte yolcu taşımaz.
-    const depMode = (f.departureMode || f.trafficMode || '').toUpperCase().trim();
-    if (depMode === 'P' || SPECIAL_MAINTENANCE_MODES.has(depMode) || CARGO_MODES.has(depMode) || GENERAL_AVIATION_MODES.has(depMode)) {
+
+    const mode = getEffectiveTrafficMode(f);
+    if (mode === 'P' || SPECIAL_MAINTENANCE_MODES.has(mode) || CARGO_MODES.has(mode) || GENERAL_AVIATION_MODES.has(mode)) {
         return false;
     }
-    if (depMode && !PASSENGER_MODES.has(depMode)) return false;
+    if (mode && !PASSENGER_MODES.has(mode)) return false;
     return true;
 }
 
@@ -175,8 +198,7 @@ export function calculateBridgeUtilization(
             return;
         }
 
-        const isCargo = f.trafficMode === 'F' || f.departureMode === 'F' || isCargoFlight(f);
-        if (isCargo) {
+        if (isCargoModeFlight(f)) {
             cargoCount++;
             return;
         }
