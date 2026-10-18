@@ -775,6 +775,64 @@ const App: React.FC<{ user: User }> = ({ user }) => {
         return calculateBridgeUtilization(flights, startDate, endDate);
     }, [flights, startDate, endDate]);
 
+    const availableDays = useMemo(() => {
+        if (flights.length === 0) return [];
+        const dayMap = new Map<string, { label: string; date: Date; count: number }>();
+        flights.forEach(f => {
+            if (f.type === 'arrival') return;
+            const d = f.scheduledDeparture;
+            if (!d || isNaN(d.getTime())) return;
+            const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+            if (!dayMap.has(key)) {
+                const label = d.toLocaleDateString('tr-TR', { day: '2-digit', month: 'short' });
+                const dayStart = new Date(d);
+                dayStart.setHours(0, 0, 0, 0);
+                dayMap.set(key, { label, date: dayStart, count: 0 });
+            }
+            dayMap.get(key)!.count++;
+        });
+        return Array.from(dayMap.entries())
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([key, val]) => ({ key, ...val }));
+    }, [flights]);
+
+    const handleSelectDay = useCallback((dayDate: Date) => {
+        const start = new Date(dayDate);
+        start.setHours(0, 0, 0, 0);
+        const end = new Date(dayDate);
+        end.setHours(23, 59, 59, 999);
+        setStartDate(start);
+        setEndDate(end);
+
+        setTimeout(() => {
+            if (mainContentRef.current) {
+                mainContentRef.current.scrollTo({ left: 0, behavior: 'smooth' });
+            }
+        }, 100);
+    }, []);
+
+    const handleSelectAllRange = useCallback(() => {
+        if (flights.length === 0) return;
+        const allDates = flights.flatMap(f => [f.scheduledArrival, f.scheduledDeparture]).filter(d => d && !isNaN(d.getTime()));
+        if (allDates.length === 0) return;
+        const minMs = Math.min(...allDates.map(d => d.getTime()));
+        const maxMs = Math.max(...allDates.map(d => d.getTime()));
+        const start = new Date(minMs);
+        start.setHours(0, 0, 0, 0);
+        const end = new Date(maxMs);
+        end.setHours(23, 59, 59, 999);
+        setStartDate(start);
+        setEndDate(end);
+    }, [flights]);
+
+    const isDaySelected = useCallback((dayDate: Date) => {
+        const dayStart = new Date(dayDate);
+        dayStart.setHours(0, 0, 0, 0);
+        const dayEnd = new Date(dayDate);
+        dayEnd.setHours(23, 59, 59, 999);
+        return Math.abs(startDate.getTime() - dayStart.getTime()) < 3600000 && Math.abs(endDate.getTime() - dayEnd.getTime()) < 3600000;
+    }, [startDate, endDate]);
+
     const handleUnallocateAll = useCallback(() => {
         if (flights.length === 0) return;
         const confirmed = window.confirm("Tüm uçuşların stant atamaları sıfırlanıp bekleme havuzuna (Flight Pool) aktarılacak. Onaylıyor musunuz?");
@@ -1611,7 +1669,7 @@ const App: React.FC<{ user: User }> = ({ user }) => {
 
                         {/* Bridge Utilization Rate KPI Badge */}
                         {bridgeStats.eligibleFlightsCount > 0 && (
-                            <div className="bg-gradient-to-r from-indigo-950/90 to-purple-950/90 border border-indigo-400/50 rounded-lg px-2.5 py-1 flex items-center space-x-1.5 shadow select-none" title="Sadece köprüye atanabilir yolcu uçuşları üzerinden hesaplanan köprü kullanım oranı">
+                            <div className="bg-gradient-to-r from-indigo-950/90 to-purple-950/90 border border-indigo-400/50 rounded-lg px-2.5 py-1 flex items-center space-x-1.5 shadow select-none" title={`Kalkış (ATD) Bazlı Köprü Kullanım Oranı: Seçili dönemde kalkışı olan ${bridgeStats.eligibleFlightsCount} tarifeli/uygun yolcu uçağının ${bridgeStats.bridgeAssignedCount} tanesi köprüye (PBB Pier A-G) bağlandı.`}>
                                 <span className="text-indigo-300 font-bold">🌉 Köprü Oranı:</span>
                                 <span className="text-emerald-300 font-black text-sm">%{bridgeStats.bridgeRate.toFixed(1)}</span>
                                 <span className="text-gray-400 text-[10px]">({bridgeStats.bridgeAssignedCount}/{bridgeStats.eligibleFlightsCount} Yolcu)</span>
@@ -1841,25 +1899,61 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                             />
                         </div>
 
-                        {/* Unified Date Range Container */}
-                        <div className="flex items-center gap-1.5 bg-gray-900/80 border border-gray-700/80 px-2.5 py-1 rounded-lg text-xs">
-                            <span className="text-gray-400 font-medium">Başlangıç:</span>
-                            <input 
-                                id="start-date" 
-                                type="datetime-local" 
-                                value={formatDateForInput(startDate)} 
-                                onChange={handleStartDateChange} 
-                                className="bg-transparent text-gray-200 outline-none text-xs cursor-pointer focus:text-white"
-                            />
-                            <span className="text-gray-600">|</span>
-                            <span className="text-gray-400 font-medium">Bitiş:</span>
-                            <input 
-                                id="end-date" 
-                                type="datetime-local" 
-                                value={formatDateForInput(endDate)} 
-                                onChange={handleEndDateChange} 
-                                className="bg-transparent text-gray-200 outline-none text-xs cursor-pointer focus:text-white"
-                            />
+                        {/* Day Pills & Unified Date Range Container */}
+                        <div className="flex items-center gap-2">
+                            {availableDays.length > 1 && (
+                                <div className="flex items-center gap-1 bg-gray-900/90 border border-gray-700/80 px-1.5 py-0.5 rounded-lg overflow-x-auto max-w-[280px] scrollbar-none shadow-inner">
+                                    <button
+                                        onClick={handleSelectAllRange}
+                                        className={`px-2 py-0.5 rounded text-[11px] font-semibold transition select-none ${
+                                            !availableDays.some(d => isDaySelected(d.date))
+                                                ? 'bg-blue-600 text-white shadow'
+                                                : 'text-gray-400 hover:text-gray-200'
+                                        }`}
+                                        title="Tüm yüklenen uçuş haftasını kapsa"
+                                    >
+                                        Tümü
+                                    </button>
+                                    {availableDays.map(d => {
+                                        const selected = isDaySelected(d.date);
+                                        return (
+                                            <button
+                                                key={d.key}
+                                                onClick={() => handleSelectDay(d.date)}
+                                                className={`px-2 py-0.5 rounded text-[11px] font-semibold transition whitespace-nowrap select-none ${
+                                                    selected
+                                                        ? 'bg-emerald-600 text-white shadow ring-1 ring-emerald-400 font-bold'
+                                                        : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800'
+                                                }`}
+                                                title={`${d.label} (Toplam ${d.count} kalkış)`}
+                                            >
+                                                {d.label}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            )}
+
+                            {/* Unified Date Range Container */}
+                            <div className="flex items-center gap-1.5 bg-gray-900/80 border border-gray-700/80 px-2.5 py-1 rounded-lg text-xs">
+                                <span className="text-gray-400 font-medium">Başlangıç:</span>
+                                <input 
+                                    id="start-date" 
+                                    type="datetime-local" 
+                                    value={formatDateForInput(startDate)} 
+                                    onChange={handleStartDateChange} 
+                                    className="bg-transparent text-gray-200 outline-none text-xs cursor-pointer focus:text-white"
+                                />
+                                <span className="text-gray-600">|</span>
+                                <span className="text-gray-400 font-medium">Bitiş:</span>
+                                <input 
+                                    id="end-date" 
+                                    type="datetime-local" 
+                                    value={formatDateForInput(endDate)} 
+                                    onChange={handleEndDateChange} 
+                                    className="bg-transparent text-gray-200 outline-none text-xs cursor-pointer focus:text-white"
+                                />
+                            </div>
                         </div>
                     </div>
                 </div>

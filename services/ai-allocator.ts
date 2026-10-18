@@ -98,12 +98,20 @@ export function isPassengerFlight(f: Flight): boolean {
     if (isCargoModeFlight(f)) return false;
     if (isGeneralAviationFlight(f)) return false;
     if (isSpecialOrMaintenanceFlight(f)) return false;
-    const mode = (f.trafficMode || f.departureMode || '').toUpperCase().trim();
-    if (mode && !PASSENGER_MODES.has(mode)) return false;
+    // ATD kalkış hesabı için gidiş modu (departureMode) referanstır.
+    // Örn: J/P modundaki bir uçuş geliş yolculu (J) olsa da gidiş ferry/boş intikal (P) olduğundan gidişte yolcu taşımaz.
+    const depMode = (f.departureMode || f.trafficMode || '').toUpperCase().trim();
+    if (depMode === 'P' || SPECIAL_MAINTENANCE_MODES.has(depMode) || CARGO_MODES.has(depMode) || GENERAL_AVIATION_MODES.has(depMode)) {
+        return false;
+    }
+    if (depMode && !PASSENGER_MODES.has(depMode)) return false;
     return true;
 }
 
 export function isFlightBridgeEligible(f: Flight): boolean {
+    // Arrival-only bacaklar ATD bazlı kalkış planlamasına girmez
+    if (f.type === 'arrival') return false;
+
     // 1. Missing / Unassigned A/C -> Excluded
     if (isNoAcFlight(f)) return false;
 
@@ -147,6 +155,12 @@ export function calculateBridgeUtilization(
     const endMs = endDate ? endDate.getTime() : Infinity;
 
     flights.forEach(f => {
+        // ATD / Kalkış odaklı köprü kullanım hesabı: Sadece kalkış bacağı olan uçuşlar (turnaround veya departure)
+        // Arrival bacakları (towed geliş veya tek bacak geliş) yapay scheduledDeparture taşıdığı için ATD kalkış sayımına dahil edilemez.
+        if (f.type === 'arrival') {
+            return;
+        }
+
         // Sadece seçili tarih aralığında giden uçuşlar (ATD / scheduledDeparture referans alınır)
         const depMs = f.scheduledDeparture ? f.scheduledDeparture.getTime() : 0;
         if (depMs < startMs || depMs > endMs) {
