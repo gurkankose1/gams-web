@@ -198,10 +198,16 @@ export function validateFlightPlacement(
     const flightArr = flight.scheduledArrival.getTime();
     const flightDep = flight.scheduledDeparture.getTime();
 
-    // --- RULE A: MARS / Widebody Center Stand Requirement (PDF 3) ---
+    // --- RULE A: MARS / Widebody Stand Restriction (PDF 3) ---
+    const concourse = Object.keys(CONCOURSE_LAYOUT).find(c => CONCOURSE_LAYOUT[c].includes(targetPosition));
+    const isNarrowOnlyContact = concourse === 'Concourse C' || concourse === 'Concourse E' || targetPosition === 'B2' || targetPosition === 'F2';
     const mars = getMarsRelatedPositions(targetPosition);
-    if (isWide && mars.isSubStand) {
-        reasons.push(`Geniş gövdeli uçak (${flight.aircraftType}) L/R alt pozisyona (${targetPosition}) park edemez. Center pozisyona (${mars.center}) verilmeli.`);
+    if (isWide) {
+        if (mars.isSubStand) {
+            reasons.push(`Geniş gövdeli uçak (${flight.aircraftType}) L/R alt pozisyona (${targetPosition}) park edemez. Center pozisyona (${mars.center}) verilmeli.`);
+        } else if (isNarrowOnlyContact) {
+            reasons.push(`Geniş gövdeli uçak (${flight.aircraftType}) dar gövde (${concourse}) körük pozisyonuna (${targetPosition}) park edemez. C ve E iskeleleri yalnızca dar gövde içindir.`);
+        }
     }
 
     // --- RULE B: MARS Overlap Conflicts (Center vs L/R Occupancy) ---

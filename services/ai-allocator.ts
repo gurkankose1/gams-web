@@ -216,15 +216,21 @@ export function getAllowedBridgeConcourses(f: Flight): string[] {
     const isArrDom = f.type === 'turnaround' ? (f.arrivalIsDomestic ?? f.isDomestic) : f.isDomestic;
     const isDepDom = f.type === 'turnaround' ? (f.departureIsDomestic ?? f.isDomestic) : f.isDomestic;
 
-    if (isArrDom && isDepDom) {
-        // İç - İç: Sadece Concourse G
+    // Single arrival flight: arrival destination determines terminal pier
+    if (f.type === 'arrival') {
+        return isArrDom
+            ? ['Concourse G']
+            : ['Concourse A', 'Concourse B', 'Concourse C', 'Concourse D', 'Concourse E', 'Concourse F'];
+    }
+
+    // Turnaround and departure flights:
+    // IST bridge gate boarding is governed by the departure leg destination:
+    // - Domestic departure (İç-İç or Dış-İç): Boards at Domestic Pier G only.
+    // - International departure (Dış-Dış or İç-Dış): Boards at International Piers (A, B, C, D, E, F). Pier G is strictly forbidden!
+    if (isDepDom) {
         return ['Concourse G'];
-    } else if (!isArrDom && !isDepDom) {
-        // Dış - Dış: Sadece Concourse A, B, C, D, E, F
-        return ['Concourse A', 'Concourse B', 'Concourse C', 'Concourse D', 'Concourse E', 'Concourse F'];
     } else {
-        // İç - Dış veya Dış - İç: Tüm pierler serbest
-        return ['Concourse A', 'Concourse B', 'Concourse C', 'Concourse D', 'Concourse E', 'Concourse F', 'Concourse G'];
+        return ['Concourse A', 'Concourse B', 'Concourse C', 'Concourse D', 'Concourse E', 'Concourse F'];
     }
 }
 
@@ -270,13 +276,20 @@ function buildStandTopology(): Map<string, StandSchedule> {
         const isMarsCenter = marsSubsByCenter.has(stand);
         const subs = isMarsCenter ? marsSubsByCenter.get(stand) : undefined;
 
-        // Widebody compatibility: center stands or non-MARS contact stands in Concourse D, etc.
+        // Widebody compatibility:
+        // - MARS Center stands: Widebody compatible
+        // - Concourse D (D1-D17) & single wide contact stands: Widebody compatible
+        // - Concourse C (C1-C4) and Concourse E (E1-E4): Strictly Narrowbody (Cat C) only! ZERO widebody allowed!
+        // - MARS sub-stands (L/R) & B2, F2: Strictly Narrowbody (Cat C) only!
         const isContact = isContactStand(stand);
+        const isNarrowOnlyContact = concourse === 'Concourse C' || concourse === 'Concourse E' || stand === 'B2' || stand === 'F2';
         let isWideCompatible = false;
         if (isMarsCenter) {
             isWideCompatible = true;
-        } else if (!isMarsSub) {
-            if (concourse === 'Concourse D' || concourse === 'Concourse C' || concourse === 'Concourse E') {
+        } else if (!isMarsSub && !isNarrowOnlyContact) {
+            if (concourse === 'Concourse D') {
+                isWideCompatible = true;
+            } else if (stand === 'A9' || stand === 'B4' || (stand.startsWith('B') && parseInt(stand.slice(1)) >= 13 && parseInt(stand.slice(1)) <= 17) || (stand.startsWith('F') && parseInt(stand.slice(1)) >= 14 && parseInt(stand.slice(1)) <= 19)) {
                 isWideCompatible = true;
             } else if (!isContact) {
                 // Remote open stands: center stands or single positions
@@ -927,7 +940,7 @@ export function runAiBridgeAllocation(
     }
 
     // -----------------------------------------------------------------------
-    // Result Assembly
+    // Result Assembly & Safety Net
     // -----------------------------------------------------------------------
     const updatedFlights: Flight[] = allFlights.map(f => {
         const newPos = flightUpdates.get(f.id) !== undefined ? flightUpdates.get(f.id)! : f.parkingPosition;
@@ -935,6 +948,56 @@ export function runAiBridgeAllocation(
             ...f,
             parkingPosition: newPos
         };
+    });
+
+    // Safety Net: Guarantee 0 rule violations across all contact assigned flights
+    updatedFlights.forEach(f => {
+        if (!f.parkingPosition) return;
+        const pos = f.parkingPosition;
+        if (!isContactStand(pos)) return;
+
+        const isWide = isFlightWide(f);
+        const concourse = Object.keys(CONCOURSE_LAYOUT).find(c => CONCOURSE_LAYOUT[c].includes(pos)) || '';
+        const isNarrowOnly = concourse === 'Concourse C' || concourse === 'Concourse E' || pos === 'B2' || pos === 'F2' || pos.endsWith('L') || pos.endsWith('R');
+
+        let needsDemotion = false;
+
+        // Rule 1: No widebody on narrow-only contact stand
+        if (isWide && isNarrowOnly) {
+            console.warn(`[SAFETY NET] Widebody violation prevented on ${pos} for flight ${f.id}. Demoting to remote.`);
+            needsDemotion = true;
+        }
+
+        // Rule 2: Pier G vs International
+        const isDepDom = f.type === 'turnaround' ? (f.departureIsDomestic ?? f.isDomestic) : (f.type === 'arrival' ? (f.arrivalIsDomestic ?? f.isDomestic) : f.isDomestic);
+        if (concourse === 'Concourse G' && !isDepDom) {
+            console.warn(`[SAFETY NET] Dış hat flight on Concourse G prevented (${pos}, ${f.id}). Demoting to remote.`);
+            needsDemotion = true;
+        } else if (concourse !== 'Concourse G' && concourse.startsWith('Concourse') && isDepDom) {
+            console.warn(`[SAFETY NET] İç hat flight on International Concourse prevented (${pos}, ${f.id}). Demoting to remote.`);
+            needsDemotion = true;
+        }
+
+        if (needsDemotion) {
+            f.parkingPosition = null;
+            flightUpdates.delete(f.id);
+
+            // Re-allocate to open remote apron
+            const arrMs = f.scheduledArrival.getTime();
+            const depMs = f.scheduledDeparture.getTime();
+            for (const ap of ['APRON 1', 'APRON 2', 'APRON 3', 'APRON 4']) {
+                for (const s of (CONCOURSE_LAYOUT[ap] || [])) {
+                    const sched = topology.get(s);
+                    if (sched && canFitOnStand(sched, arrMs, depMs, isWide, topology)) {
+                        placeOnStand(sched, arrMs, depMs, f.id);
+                        f.parkingPosition = s;
+                        flightUpdates.set(f.id, s);
+                        break;
+                    }
+                }
+                if (f.parkingPosition) break;
+            }
+        }
     });
 
     const stats = calculateBridgeUtilization(updatedFlights, startDate, endDate);

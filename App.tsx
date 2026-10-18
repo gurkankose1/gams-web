@@ -207,9 +207,23 @@ const parseTurnaroundDataWithMapping = (rawData: any[], mapping: Mapping, startD
             }
         }
 
-        const isArrDom = String(row['I/D'] ?? '').toUpperCase().trim() === 'D' || (m.arrMode ? String(row[m.arrMode] ?? '').toUpperCase().startsWith('D') : TURKISH_DOMESTIC_AIRPORTS.has(origin));
-        const isDepDom = String(row['I/D_1'] ?? row['I/D.1'] ?? '').toUpperCase().trim() === 'D' || (m.depMode ? String(row[m.depMode] ?? '').toUpperCase().startsWith('D') : TURKISH_DOMESTIC_AIRPORTS.has(destination));
-        const departureMode = m.depMode ? String(row[m.depMode] ?? '').toUpperCase().trim() : undefined;
+        const parseDomesticFlag = (val: unknown, fallbackAirport?: string): boolean => {
+            if (val !== undefined && val !== null && String(val).trim() !== '') {
+                const str = String(val).toUpperCase().trim();
+                if (str === 'D' || str.startsWith('DOM') || str === 'İÇ' || str === 'IC') return true;
+                if (str === 'I' || str.startsWith('INT') || str === 'DIŞ' || str === 'DIS') return false;
+            }
+            if (fallbackAirport && TURKISH_DOMESTIC_AIRPORTS.has(fallbackAirport.toUpperCase().trim())) {
+                return true;
+            }
+            return false;
+        };
+
+        const rawArrMode = m.arrMode ? row[m.arrMode] : (row['I/D'] ?? row['Arr I/D'] ?? row['ArrMod']);
+        const rawDepMode = m.depMode ? row[m.depMode] : (row['I/D.1'] ?? row['I/D_1'] ?? row['Dep I/D'] ?? row['DepMod']);
+        const isArrDom = parseDomesticFlag(rawArrMode, origin);
+        const isDepDom = parseDomesticFlag(rawDepMode, destination);
+        const departureMode = rawDepMode ? String(rawDepMode).toUpperCase().trim() : undefined;
         
         const arrGateStr = m.arrGate ? String(row[m.arrGate] ?? '').toUpperCase().trim() || null : null;
         const depGateStr = m.depGate ? String(row[m.depGate] ?? '').toUpperCase().trim() || null : null;
