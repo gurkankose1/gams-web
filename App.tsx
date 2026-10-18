@@ -19,6 +19,7 @@ import CustomDragLayer from './components/CustomDragLayer.tsx';
 import HeaderRevenueSummary from './components/HeaderRevenueSummary.tsx';
 import BottomRevenueSummaryBar from './components/BottomRevenueSummaryBar.tsx';
 import { runAiBridgeAllocation, calculateBridgeUtilization } from './services/ai-allocator.ts';
+import AiAllocationReportModal, { AiReportData } from './components/AiAllocationReportModal.tsx';
 import { database } from './firebase.ts';
 import { ref, onValue, set, update, remove } from 'firebase/database';
 import { User } from 'firebase/auth';
@@ -626,6 +627,8 @@ const App: React.FC<{ user: User }> = ({ user }) => {
     const [isExcelErrorModalOpen, setExcelErrorModalOpen] = useState(false);
     const [importReport, setImportReport] = useState<ImportReport | null>(null);
     const [isReportModalOpen, setReportModalOpen] = useState(false);
+    const [aiReportData, setAiReportData] = useState<AiReportData | null>(null);
+    const [isAiReportModalOpen, setIsAiReportModalOpen] = useState(false);
 
     const [selectedFlightIds, setSelectedFlightIds] = useState<Set<string>>(new Set());
     const mainContentRef = useRef<HTMLDivElement>(null);
@@ -774,11 +777,11 @@ const App: React.FC<{ user: User }> = ({ user }) => {
 
         setTimeout(() => {
             try {
-                const { flights: newFlights, stats } = runAiBridgeAllocation(flights, startDate, endDate);
+                const { flights: newFlights, stats, swapDetails, totalSwapsPerformed, netFlightsGained, gapFillsPerformed } = runAiBridgeAllocation(flights, startDate, endDate);
 
                 const newHistoryEntry: FlightHistoryEntry = {
                     user: currentUser.username,
-                    action: `AI Senaryo 1 Planlama yapıldı (Köprü Oranı: %${stats.bridgeRate.toFixed(1)}).`,
+                    action: `AI Senaryo 1 Planlama yapıldı (Köprü Oranı: %${stats.bridgeRate.toFixed(1)}, ${totalSwapsPerformed} akıllı takas).`,
                     timestamp: new Date()
                 };
 
@@ -812,8 +815,18 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                     });
                 }
 
-                setAllocationMessage(`🤖 AI Senaryo 1 Planlama Tamamlandı: %${stats.bridgeRate.toFixed(1)} Köprü Oranı (${stats.bridgeAssignedCount} / ${stats.eligibleFlightsCount} Yolcu Uçuşu Körükte)`);
+                setAllocationMessage(`🤖 AI Senaryo 1 Planlama Tamamlandı: %${stats.bridgeRate.toFixed(1)} Köprü Oranı (${stats.bridgeAssignedCount} / ${stats.eligibleFlightsCount} Yolcu Körükte, ${totalSwapsPerformed} Akıllı Takas)`);
                 setTimeout(() => setAllocationMessage(null), 8000);
+
+                // Open AI Report Card Modal
+                setAiReportData({
+                    stats,
+                    swapDetails,
+                    totalSwapsPerformed,
+                    netFlightsGained,
+                    gapFillsPerformed
+                });
+                setIsAiReportModalOpen(true);
             } catch (err) {
                 console.error("AI allocation error:", err);
                 alert("AI planlama sırasında bir hata oluştu.");
@@ -1809,6 +1822,7 @@ const App: React.FC<{ user: User }> = ({ user }) => {
             )}
 
             <ExcelImportReportModal isOpen={isReportModalOpen} onClose={() => setReportModalOpen(false)} report={importReport} />
+            <AiAllocationReportModal isOpen={isAiReportModalOpen} onClose={() => setIsAiReportModalOpen(false)} report={aiReportData} />
             <ExcelErrorModal isOpen={isExcelErrorModalOpen} onClose={() => setExcelErrorModalOpen(false)} errors={excelErrors} />
             {historyModalFlight && <FlightHistoryModal flight={historyModalFlight} onClose={() => setHistoryModalFlight(null)} />}
             {trackingFlight && <FlightTrackingModal flight={trackingFlight} onClose={() => setTrackingFlight(null)} />}
