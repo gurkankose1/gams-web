@@ -22,8 +22,42 @@ export interface BridgeUtilizationStats {
 }
 
 // ---------------------------------------------------------------------------
-// 1. Identification & Classification Helpers
+// 1. Flight Modes and Category Classification (Official OCC Table)
 // ---------------------------------------------------------------------------
+
+export const FLIGHT_MODE_DESCRIPTIONS: Record<string, { desc: string; category: 'PAX' | 'CARGO' | 'GA' | 'SPECIAL' | 'MAINTENANCE' }> = {
+    'A': { desc: 'Additional Flight PAX/CGO/MAIL', category: 'PAX' },
+    'B': { desc: 'Additional PAX - Shuttle Mode', category: 'PAX' },
+    'C': { desc: 'Charter Passenger only', category: 'PAX' },
+    'D': { desc: 'General Aviation', category: 'GA' },
+    'E': { desc: 'Special (FAA / Government)', category: 'SPECIAL' },
+    'F': { desc: 'Scheduled CGO/Mail', category: 'CARGO' },
+    'G': { desc: 'Additional Flights PAX Normal', category: 'PAX' },
+    'H': { desc: 'Charter CGO and/or Mail', category: 'CARGO' },
+    'I': { desc: 'Ambulance Flight', category: 'SPECIAL' },
+    'J': { desc: 'Scheduled PAX Normal Service', category: 'PAX' },
+    'K': { desc: 'Training (School/Crew Check)', category: 'MAINTENANCE' },
+    'L': { desc: 'Charter PAX and CGO/MAIL', category: 'PAX' },
+    'M': { desc: 'Mail only', category: 'CARGO' },
+    'N': { desc: 'Business Aviation/Air Taxi', category: 'GA' },
+    'O': { desc: 'Charter with Special Handling', category: 'PAX' },
+    'P': { desc: 'Non Revenue Flt. (Positioning/Ferry/Delivery)', category: 'MAINTENANCE' },
+    'Q': { desc: 'Scheduled PAX/CGO in Cabin', category: 'PAX' },
+    'R': { desc: 'Additional PAX/CGO in Cabin', category: 'PAX' },
+    'S': { desc: 'Scheduled PAX - Shuttle Mode', category: 'PAX' },
+    'T': { desc: 'Technical Test', category: 'MAINTENANCE' },
+    'U': { desc: 'Passenger by Surface Vehicle', category: 'SPECIAL' },
+    'V': { desc: 'CGO/Mail by Surface Vehicle', category: 'CARGO' },
+    'W': { desc: 'Military', category: 'SPECIAL' },
+    'X': { desc: 'Technical Stop', category: 'SPECIAL' },
+    'Y': { desc: 'Transit (Sadece hava tarafi)', category: 'PAX' },
+    'Z': { desc: 'Maintenance', category: 'MAINTENANCE' },
+};
+
+export const PASSENGER_MODES = new Set(['J', 'C', 'G', 'A', 'B', 'L', 'O', 'Q', 'R', 'S', 'Y']);
+export const CARGO_MODES = new Set(['F', 'H', 'M', 'V']);
+export const GENERAL_AVIATION_MODES = new Set(['D', 'N']);
+export const SPECIAL_MAINTENANCE_MODES = new Set(['E', 'I', 'K', 'P', 'T', 'W', 'X', 'Z', 'U']);
 
 export function isNoAcFlight(f: Flight): boolean {
     if (f.isTransparent) return true;
@@ -36,7 +70,8 @@ export function isNoAcFlight(f: Flight): boolean {
 }
 
 export function isGeneralAviationFlight(f: Flight): boolean {
-    if (f.trafficMode === 'G') return true;
+    const mode = (f.trafficMode || f.departureMode || '').toUpperCase().trim();
+    if (GENERAL_AVIATION_MODES.has(mode)) return true;
     const arrNo = (f.arrivalFlightNumber || '').toUpperCase().trim();
     const depNo = (f.departureFlightNumber || '').toUpperCase().trim();
     const airline = (f.airline || '').toUpperCase().trim();
@@ -44,20 +79,46 @@ export function isGeneralAviationFlight(f: Flight): boolean {
     return false;
 }
 
+export function isCargoModeFlight(f: Flight): boolean {
+    const mode = (f.trafficMode || f.departureMode || '').toUpperCase().trim();
+    if (CARGO_MODES.has(mode)) return true;
+    return isCargoFlight(f);
+}
+
+export function isSpecialOrMaintenanceFlight(f: Flight): boolean {
+    const mode = (f.trafficMode || f.departureMode || '').toUpperCase().trim();
+    return SPECIAL_MAINTENANCE_MODES.has(mode);
+}
+
+export function isPassengerFlight(f: Flight): boolean {
+    if (isCargoModeFlight(f)) return false;
+    if (isGeneralAviationFlight(f)) return false;
+    if (isSpecialOrMaintenanceFlight(f)) return false;
+    const mode = (f.trafficMode || f.departureMode || '').toUpperCase().trim();
+    if (mode && !PASSENGER_MODES.has(mode)) return false;
+    return true;
+}
+
 export function isFlightBridgeEligible(f: Flight): boolean {
-    // 1. Missing / Unassigned A/C -> Excluded from numerator and denominator
+    // 1. Missing / Unassigned A/C -> Excluded
     if (isNoAcFlight(f)) return false;
 
-    // 2. Cargo flight -> Excluded
-    if (f.trafficMode === 'F' || f.departureMode === 'F' || isCargoFlight(f)) return false;
+    // 2. Cargo flight (F, H, M, V) -> Excluded
+    if (isCargoModeFlight(f)) return false;
 
-    // 3. General Aviation (GA & ZZ flights) -> Excluded
+    // 3. General Aviation (D, N, ZZ) -> Excluded
     if (isGeneralAviationFlight(f)) return false;
 
-    // 4. Propeller / Turboprop (ATR72, DH8D etc.) -> Excluded
+    // 4. Special / Maintenance / Ferry (E, W, P, X, Z) -> Excluded
+    if (isSpecialOrMaintenanceFlight(f)) return false;
+
+    // 5. Must be a Passenger flight (J, C, G, A, B, L, O, Q, R, S, Y)
+    if (!isPassengerFlight(f)) return false;
+
+    // 6. Propeller / Turboprop (ATR72, DH8D etc.) -> Excluded
     if (isPropellerAircraft(f.aircraftType)) return false;
 
-    // 5. Heavy Cat F without bridge access
+    // 7. Heavy Cat F without bridge access
     const cat = f.acCategory || getAircraftCategory(f.aircraftType);
     if (cat === 'F') return false;
 
