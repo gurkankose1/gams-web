@@ -741,8 +741,8 @@ const App: React.FC<{ user: User }> = ({ user }) => {
     const [allocationMessage, setAllocationMessage] = useState<string | null>(null);
 
     const bridgeStats = useMemo(() => {
-        return calculateBridgeUtilization(flights);
-    }, [flights]);
+        return calculateBridgeUtilization(flights, startDate, endDate);
+    }, [flights, startDate, endDate]);
 
     const handleUnallocateAll = useCallback(() => {
         if (flights.length === 0) return;
@@ -774,7 +774,7 @@ const App: React.FC<{ user: User }> = ({ user }) => {
 
         setTimeout(() => {
             try {
-                const { flights: newFlights, stats } = runAiBridgeAllocation(flights);
+                const { flights: newFlights, stats } = runAiBridgeAllocation(flights, startDate, endDate);
 
                 const newHistoryEntry: FlightHistoryEntry = {
                     user: currentUser.username,
@@ -821,7 +821,7 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                 setIsAiAllocating(false);
             }
         }, 100);
-    }, [flights, currentUser.username, maintenanceBlocks, gateList]);
+    }, [flights, startDate, endDate, currentUser.username, maintenanceBlocks, gateList]);
     
     // Search and scroll to flight
     useEffect(() => {

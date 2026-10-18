@@ -35,6 +35,15 @@ export function isNoAcFlight(f: Flight): boolean {
     return false;
 }
 
+export function isGeneralAviationFlight(f: Flight): boolean {
+    if (f.trafficMode === 'G') return true;
+    const arrNo = (f.arrivalFlightNumber || '').toUpperCase().trim();
+    const depNo = (f.departureFlightNumber || '').toUpperCase().trim();
+    const airline = (f.airline || '').toUpperCase().trim();
+    if (arrNo.startsWith('ZZ') || depNo.startsWith('ZZ') || airline.startsWith('ZZ')) return true;
+    return false;
+}
+
 export function isFlightBridgeEligible(f: Flight): boolean {
     // 1. Missing / Unassigned A/C -> Excluded from numerator and denominator
     if (isNoAcFlight(f)) return false;
@@ -42,8 +51,8 @@ export function isFlightBridgeEligible(f: Flight): boolean {
     // 2. Cargo flight -> Excluded
     if (f.trafficMode === 'F' || f.departureMode === 'F' || isCargoFlight(f)) return false;
 
-    // 3. General Aviation (GA) -> Excluded
-    if (f.trafficMode === 'G') return false;
+    // 3. General Aviation (GA & ZZ flights) -> Excluded
+    if (isGeneralAviationFlight(f)) return false;
 
     // 4. Propeller / Turboprop (ATR72, DH8D etc.) -> Excluded
     if (isPropellerAircraft(f.aircraftType)) return false;
@@ -55,7 +64,11 @@ export function isFlightBridgeEligible(f: Flight): boolean {
     return true;
 }
 
-export function calculateBridgeUtilization(flights: Flight[]): BridgeUtilizationStats {
+export function calculateBridgeUtilization(
+    flights: Flight[],
+    startDate?: Date,
+    endDate?: Date
+): BridgeUtilizationStats {
     let eligibleCount = 0;
     let bridgeAssigned = 0;
     let remoteAssigned = 0;
@@ -64,8 +77,20 @@ export function calculateBridgeUtilization(flights: Flight[]): BridgeUtilization
     let gaCount = 0;
     let propCount = 0;
     let noAcCount = 0;
+    let consideredFlightsCount = 0;
+
+    const startMs = startDate ? startDate.getTime() : 0;
+    const endMs = endDate ? endDate.getTime() : Infinity;
 
     flights.forEach(f => {
+        // Sadece seçili tarih aralığında giden uçuşlar (ATD / scheduledDeparture referans alınır)
+        const depMs = f.scheduledDeparture ? f.scheduledDeparture.getTime() : 0;
+        if (depMs < startMs || depMs > endMs) {
+            return; // Seçili tarih aralığı dışındaki uçuşlar hesaba dahil edilmez
+        }
+
+        consideredFlightsCount++;
+
         if (isNoAcFlight(f)) {
             noAcCount++;
             unassigned++;
@@ -78,7 +103,7 @@ export function calculateBridgeUtilization(flights: Flight[]): BridgeUtilization
             return;
         }
 
-        if (f.trafficMode === 'G') {
+        if (isGeneralAviationFlight(f)) {
             gaCount++;
             return;
         }
@@ -93,7 +118,7 @@ export function calculateBridgeUtilization(flights: Flight[]): BridgeUtilization
             return;
         }
 
-        // Eligible Passenger Flight
+        // Eligible Passenger Flight (Sadece köprüye alınabilir yolcu uçuşları)
         eligibleCount++;
         if (f.parkingPosition) {
             if (isContactStand(f.parkingPosition)) {
@@ -109,7 +134,7 @@ export function calculateBridgeUtilization(flights: Flight[]): BridgeUtilization
     const bridgeRate = eligibleCount > 0 ? (bridgeAssigned / eligibleCount) * 100 : 0;
 
     return {
-        totalFlights: flights.length,
+        totalFlights: consideredFlightsCount,
         eligibleFlightsCount: eligibleCount,
         bridgeAssignedCount: bridgeAssigned,
         remoteAssignedCount: remoteAssigned,
@@ -270,7 +295,11 @@ export interface AiAllocationResult {
     stats: BridgeUtilizationStats;
 }
 
-export function runAiBridgeAllocation(allFlights: Flight[]): AiAllocationResult {
+export function runAiBridgeAllocation(
+    allFlights: Flight[],
+    startDate?: Date,
+    endDate?: Date
+): AiAllocationResult {
     const topology = buildStandTopology();
     const flightUpdates = new Map<string, string | null>();
 
@@ -287,7 +316,7 @@ export function runAiBridgeAllocation(allFlights: Flight[]): AiAllocationResult 
             flightUpdates.set(f.id, null); // Keep in pool!
         } else if (f.trafficMode === 'F' || f.departureMode === 'F' || isCargoFlight(f)) {
             cargoFlights.push(f);
-        } else if (f.trafficMode === 'G') {
+        } else if (isGeneralAviationFlight(f)) {
             gaFlights.push(f);
         } else if (isPropellerAircraft(f.aircraftType)) {
             propFlights.push(f);
@@ -487,10 +516,10 @@ export function runAiBridgeAllocation(allFlights: Flight[]): AiAllocationResult 
     });
 
     // -----------------------------------------------------------------------
-    // Pass E: General Aviation Flights -> H Aprons (DEICING 2, 3, 4, 5 / H stands)
+    // Pass E: General Aviation Flights (including ZZ flights) -> APRON 6 & H Aprons
     // -----------------------------------------------------------------------
     gaFlights.sort((a, b) => a.scheduledArrival.getTime() - b.scheduledArrival.getTime());
-    const gaAprons = ['DEICING 2 APRON', 'DEICING 3 APRON', 'DEICING 4 APRON', 'DEICING 5 APRON', 'MOTOR TEST AREA'];
+    const gaAprons = ['APRON 6', 'DEICING 4 APRON', 'DEICING 2 APRON', 'DEICING 3 APRON', 'DEICING 5 APRON', 'MOTOR TEST AREA'];
 
     gaFlights.forEach(flight => {
         const arrMs = flight.scheduledArrival.getTime();
@@ -524,7 +553,7 @@ export function runAiBridgeAllocation(allFlights: Flight[]): AiAllocationResult 
         };
     });
 
-    const stats = calculateBridgeUtilization(updatedFlights);
+    const stats = calculateBridgeUtilization(updatedFlights, startDate, endDate);
 
     return {
         flights: updatedFlights,
