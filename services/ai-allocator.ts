@@ -435,7 +435,7 @@ export interface AiAllocationResult {
     gapFillsPerformed: number;
 }
 
-export function runAiBridgeAllocation(
+export function runFromScratchAllocation(
     allFlights: Flight[],
     startDate?: Date,
     endDate?: Date
@@ -1393,4 +1393,454 @@ export function runAiBridgeAllocation(
         netFlightsGained,
         gapFillsPerformed
     };
+}
+
+// ---------------------------------------------------------------------------
+// 5. Warm-Start Optimization: Preserve & Elevate Human Dispatcher Plan
+// ---------------------------------------------------------------------------
+export function runPreserveAndElevateAllocation(
+    allFlights: Flight[],
+    startDate?: Date,
+    endDate?: Date
+): AiAllocationResult | null {
+    const existingContactCount = allFlights.filter(f => f.parkingPosition && isContactStand(f.parkingPosition)).length;
+    if (existingContactCount === 0) return null;
+
+    const topology = buildStandTopology();
+    const flightUpdates = new Map<string, string | null>();
+
+    const eligibleFlights: Flight[] = [];
+    const cargoFlights: Flight[] = [];
+    const gaFlights: Flight[] = [];
+    const propFlights: Flight[] = [];
+    const noAcFlights: Flight[] = [];
+
+    allFlights.forEach(f => {
+        if (isNoAcFlight(f)) {
+            noAcFlights.push(f);
+            flightUpdates.set(f.id, null);
+        } else if (f.trafficMode === 'F' || f.departureMode === 'F' || isCargoFlight(f)) {
+            cargoFlights.push(f);
+            flightUpdates.set(f.id, f.parkingPosition || null);
+        } else if (isGeneralAviationFlight(f)) {
+            gaFlights.push(f);
+            flightUpdates.set(f.id, f.parkingPosition || null);
+        } else if (isPropellerAircraft(f.aircraftType)) {
+            propFlights.push(f);
+            flightUpdates.set(f.id, f.parkingPosition || null);
+        } else {
+            eligibleFlights.push(f);
+        }
+    });
+
+    const isFlightWide = (f: Flight): boolean => {
+        if (f.acCategory === 'E' || f.acCategory === 'D' || f.acCategory === 'F') return true;
+        const cat = getAircraftCategory(f.aircraftType);
+        return cat === 'E' || cat === 'D' || cat === 'F';
+    };
+
+    const isFlightHeavy = (f: Flight): boolean => {
+        if (f.acCategory === 'F') return true;
+        return getAircraftCategory(f.aircraftType) === 'F';
+    };
+
+    const getDurationMins = (f: Flight): number => {
+        return Math.max(30, (f.scheduledDeparture.getTime() - f.scheduledArrival.getTime()) / (60 * 1000));
+    };
+
+    // Step 1: Retain valid existing contact stand flights in topology
+    const validContactFlights: Flight[] = [];
+    const remoteOrUnplacedEligible: Flight[] = [];
+
+    const existingContact = eligibleFlights.filter(f => f.parkingPosition && isContactStand(f.parkingPosition));
+    existingContact.sort((a, b) => a.scheduledArrival.getTime() - b.scheduledArrival.getTime());
+
+    for (const f of existingContact) {
+        const pos = f.parkingPosition!;
+        const sched = topology.get(pos);
+        const arrMs = f.scheduledArrival.getTime();
+        const depMs = f.scheduledDeparture.getTime();
+        const isWide = isFlightWide(f);
+        const isHeavy = isFlightHeavy(f);
+        const allowedConc = getAllowedBridgeConcourses(f);
+
+        let canKeep = false;
+        if (sched && allowedConc.includes(sched.concourse)) {
+            if (!isWide || sched.isWideCompatible) {
+                if (!isHeavy || isStandCatFCompatible(sched.stand)) {
+                    if (isWide || !sched.isMarsCenter) {
+                        if (canFitOnStand(sched, arrMs, depMs, isWide, topology, isHeavy)) {
+                            placeOnStand(sched, arrMs, depMs, f.id);
+                            flightUpdates.set(f.id, pos);
+                            validContactFlights.push(f);
+                            canKeep = true;
+                        }
+                    }
+                }
+            }
+        }
+        if (!canKeep) {
+            remoteOrUnplacedEligible.push(f);
+        }
+    }
+
+    // Add remaining eligible flights (those on remote aprons or unallocated)
+    for (const f of eligibleFlights) {
+        if (!f.parkingPosition || !isContactStand(f.parkingPosition)) {
+            remoteOrUnplacedEligible.push(f);
+            if (f.parkingPosition) {
+                flightUpdates.set(f.id, f.parkingPosition);
+                const rSched = topology.get(f.parkingPosition);
+                if (rSched) {
+                    const arrMs = f.scheduledArrival.getTime();
+                    const depMs = f.scheduledDeparture.getTime();
+                    const isWide = isFlightWide(f);
+                    const isHeavy = isFlightHeavy(f);
+                    if (canFitOnStand(rSched, arrMs, depMs, isWide, topology, isHeavy)) {
+                        placeOnStand(rSched, arrMs, depMs, f.id);
+                    }
+                }
+            } else {
+                flightUpdates.set(f.id, null);
+            }
+        }
+    }
+
+    let gapFillsPerformed = 0;
+    let netFlightsGained = 0;
+    const swapDetails: SwapDetail[] = [];
+    let totalSwapsPerformed = 0;
+
+    // Step 2: Direct Gap Filling - Elevate remote passenger flights into empty bridge slots
+    remoteOrUnplacedEligible.sort((a, b) => {
+        const isWideA = isFlightWide(a);
+        const isWideB = isFlightWide(b);
+        if (isWideA !== isWideB) return isWideA ? 1 : -1;
+        const durA = getDurationMins(a);
+        const durB = getDurationMins(b);
+        if (Math.abs(durA - durB) > 30) return durA - durB;
+        return a.scheduledArrival.getTime() - b.scheduledArrival.getTime();
+    });
+
+    for (const flight of remoteOrUnplacedEligible) {
+        const currentPos = flightUpdates.get(flight.id);
+        if (currentPos && isContactStand(currentPos)) continue;
+
+        const arrMs = flight.scheduledArrival.getTime();
+        const depMs = flight.scheduledDeparture.getTime();
+        const isWide = isFlightWide(flight);
+        const isHeavy = isFlightHeavy(flight);
+        const allowedConc = getAllowedBridgeConcourses(flight);
+
+        const candidateStands: StandSchedule[] = [];
+
+        if (!isWide) {
+            // Dedicated narrow stands (C, E, D1-D5, B2, F2)
+            for (const conc of allowedConc) {
+                if (conc === 'Concourse C' || conc === 'Concourse E') {
+                    for (const s of (CONCOURSE_LAYOUT[conc] || [])) {
+                        const sched = topology.get(s);
+                        if (sched) candidateStands.push(sched);
+                    }
+                }
+            }
+            if (allowedConc.includes('Concourse D')) {
+                for (const s of ['D1', 'D2', 'D3', 'D4', 'D5']) {
+                    const sched = topology.get(s);
+                    if (sched) candidateStands.push(sched);
+                }
+            }
+            for (const s of ['B2', 'F2']) {
+                const conc = s.startsWith('B') ? 'Concourse B' : 'Concourse F';
+                if (allowedConc.includes(conc)) {
+                    const sched = topology.get(s);
+                    if (sched) candidateStands.push(sched);
+                }
+            }
+            // MARS sub-stands (L/R)
+            for (const conc of allowedConc) {
+                for (const s of (CONCOURSE_LAYOUT[conc] || [])) {
+                    const sched = topology.get(s);
+                    if (sched && sched.isMarsSub && !candidateStands.includes(sched)) {
+                        candidateStands.push(sched);
+                    }
+                }
+            }
+            // Other non-center contact stands
+            for (const conc of allowedConc) {
+                for (const s of (CONCOURSE_LAYOUT[conc] || [])) {
+                    const sched = topology.get(s);
+                    if (sched && !sched.isMarsCenter && !candidateStands.includes(sched)) {
+                        candidateStands.push(sched);
+                    }
+                }
+            }
+        } else {
+            // For widebody: single wide stands first, then MARS Center
+            for (const conc of allowedConc) {
+                for (const s of (CONCOURSE_LAYOUT[conc] || [])) {
+                    const sched = topology.get(s);
+                    if (sched && sched.isWideCompatible && !sched.isMarsSub && !sched.isMarsCenter) {
+                        candidateStands.push(sched);
+                    }
+                }
+            }
+            for (const conc of allowedConc) {
+                for (const s of (CONCOURSE_LAYOUT[conc] || [])) {
+                    const sched = topology.get(s);
+                    if (sched && sched.isWideCompatible && sched.isMarsCenter) {
+                        candidateStands.push(sched);
+                    }
+                }
+            }
+        }
+
+        for (const sched of candidateStands) {
+            if (canFitOnStand(sched, arrMs, depMs, isWide, topology, isHeavy)) {
+                const oldPos = flightUpdates.get(flight.id);
+                if (oldPos) {
+                    const oldSched = topology.get(oldPos);
+                    if (oldSched) {
+                        oldSched.intervals = oldSched.intervals.filter(i => i.flightId !== flight.id);
+                    }
+                }
+                placeOnStand(sched, arrMs, depMs, flight.id);
+                flightUpdates.set(flight.id, sched.stand);
+                gapFillsPerformed++;
+                netFlightsGained++;
+                break;
+            }
+        }
+    }
+
+    // Step 3: Self-Healing Review & Smart Swaps
+    const openAprons = ['APRON 1', 'APRON 2', 'APRON 3', 'APRON 4', 'APRON 5', 'APRON 6', 'APRON 7'];
+    const MAX_AUDIT_PASSES = 4;
+    let auditPass = 0;
+
+    while (auditPass < MAX_AUDIT_PASSES) {
+        auditPass++;
+        let madeProgress = false;
+
+        const currentBridgeFlights = eligibleFlights.filter(f => {
+            const pos = flightUpdates.get(f.id);
+            return pos && isContactStand(pos);
+        });
+
+        currentBridgeFlights.sort((a, b) => getDurationMins(b) - getDurationMins(a));
+
+        for (const bridgeFlight of currentBridgeFlights) {
+            const bridgePos = flightUpdates.get(bridgeFlight.id);
+            if (!bridgePos || !isContactStand(bridgePos)) continue;
+
+            const standSched = topology.get(bridgePos);
+            if (!standSched) continue;
+
+            const bArrMs = bridgeFlight.scheduledArrival.getTime();
+            const bDepMs = bridgeFlight.scheduledDeparture.getTime();
+            const bDurHours = getDurationMins(bridgeFlight) / 60;
+
+            if (bDurHours < 3.5 && !standSched.isMarsCenter) continue;
+
+            standSched.intervals = standSched.intervals.filter(i => i.flightId !== bridgeFlight.id);
+
+            const availableRemotes = eligibleFlights.filter(f => {
+                const pos = flightUpdates.get(f.id);
+                if (!pos || isContactStand(pos) || isFlightWide(f)) return false;
+                const fArr = f.scheduledArrival.getTime();
+                const fDep = f.scheduledDeparture.getTime();
+                if (fArr < bDepMs && fDep > bArrMs) {
+                    const concs = getAllowedBridgeConcourses(f);
+                    return concs.includes(standSched.concourse);
+                }
+                return false;
+            });
+
+            availableRemotes.sort((a, b) => a.scheduledArrival.getTime() - b.scheduledArrival.getTime());
+            const candidateFits: { flight: Flight; stand: string }[] = [];
+
+            if (standSched.isMarsCenter && standSched.marsSubStands) {
+                const [subLName, subRName] = standSched.marsSubStands;
+                const schedL = subLName ? topology.get(subLName) : undefined;
+                const schedR = subRName ? topology.get(subRName) : undefined;
+
+                for (const rf of availableRemotes) {
+                    const rfArr = rf.scheduledArrival.getTime();
+                    const rfDep = rf.scheduledDeparture.getTime();
+                    if (candidateFits.some(c => c.flight.id === rf.id)) continue;
+
+                    if (schedL && canFitOnStand(schedL, rfArr, rfDep, false, topology)) {
+                        placeOnStand(schedL, rfArr, rfDep, rf.id);
+                        candidateFits.push({ flight: rf, stand: schedL.stand });
+                    } else if (schedR && canFitOnStand(schedR, rfArr, rfDep, false, topology)) {
+                        placeOnStand(schedR, rfArr, rfDep, rf.id);
+                        candidateFits.push({ flight: rf, stand: schedR.stand });
+                    }
+                }
+            } else if (!standSched.isMarsSub) {
+                for (const rf of availableRemotes) {
+                    const rfArr = rf.scheduledArrival.getTime();
+                    const rfDep = rf.scheduledDeparture.getTime();
+                    if (canFitOnStand(standSched, rfArr, rfDep, false, topology)) {
+                        placeOnStand(standSched, rfArr, rfDep, rf.id);
+                        candidateFits.push({ flight: rf, stand: standSched.stand });
+                    }
+                }
+            }
+
+            if (candidateFits.length >= 2) {
+                const isWide = isFlightWide(bridgeFlight);
+                let remoteTarget: string | null = null;
+                for (const ap of openAprons) {
+                    for (const st of (CONCOURSE_LAYOUT[ap] || [])) {
+                        const rSched = topology.get(st);
+                        if (rSched && canFitOnStand(rSched, bArrMs, bDepMs, isWide, topology)) {
+                            remoteTarget = st;
+                            placeOnStand(rSched, bArrMs, bDepMs, bridgeFlight.id);
+                            break;
+                        }
+                    }
+                    if (remoteTarget) break;
+                }
+
+                if (remoteTarget) {
+                    flightUpdates.set(bridgeFlight.id, remoteTarget);
+                    for (const fit of candidateFits) {
+                        const oldPos = flightUpdates.get(fit.flight.id);
+                        if (oldPos) {
+                            const oldSched = topology.get(oldPos);
+                            if (oldSched) oldSched.intervals = oldSched.intervals.filter(i => i.flightId !== fit.flight.id);
+                        }
+                        flightUpdates.set(fit.flight.id, fit.stand);
+                    }
+
+                    const netGain = candidateFits.length - 1;
+                    totalSwapsPerformed++;
+                    netFlightsGained += netGain;
+
+                    const callsignB = bridgeFlight.departureFlightNumber || bridgeFlight.arrivalFlightNumber || bridgeFlight.id;
+                    swapDetails.push({
+                        stand: bridgePos,
+                        concourse: standSched.concourse,
+                        removedFlight: {
+                            id: bridgeFlight.id,
+                            callsign: callsignB,
+                            acType: bridgeFlight.aircraftType || '',
+                            durationHours: Math.round(bDurHours * 10) / 10
+                        },
+                        sentToRemote: remoteTarget,
+                        gainedFlights: candidateFits.map(cf => ({
+                            id: cf.flight.id,
+                            callsign: cf.flight.departureFlightNumber || cf.flight.arrivalFlightNumber || cf.flight.id,
+                            acType: cf.flight.aircraftType || '',
+                            stand: cf.stand
+                        })),
+                        netGain
+                    });
+
+                    madeProgress = true;
+                    break;
+                } else {
+                    for (const fit of candidateFits) {
+                        const sched = topology.get(fit.stand);
+                        if (sched) sched.intervals = sched.intervals.filter(i => i.flightId !== fit.flight.id);
+                    }
+                    placeOnStand(standSched, bArrMs, bDepMs, bridgeFlight.id);
+                }
+            } else {
+                for (const fit of candidateFits) {
+                    const sched = topology.get(fit.stand);
+                    if (sched) sched.intervals = sched.intervals.filter(i => i.flightId !== fit.flight.id);
+                }
+                placeOnStand(standSched, bArrMs, bDepMs, bridgeFlight.id);
+            }
+        }
+
+        if (!madeProgress) break;
+    }
+
+    // Safety net and result assembly
+    const updatedFlights: Flight[] = allFlights.map(f => ({
+        ...f,
+        parkingPosition: flightUpdates.get(f.id) !== undefined ? flightUpdates.get(f.id)! : f.parkingPosition
+    }));
+
+    // Safety Net: Guarantee 0 rule violations across ALL assigned flights
+    updatedFlights.forEach(f => {
+        if (!f.parkingPosition) return;
+        const pos = f.parkingPosition;
+        const isWide = isFlightWide(f);
+        const isHeavy = isFlightHeavy(f);
+        const concourse = Object.keys(CONCOURSE_LAYOUT).find(c => CONCOURSE_LAYOUT[c].includes(pos)) || '';
+
+        let needsDemotion = false;
+        if (isWide && !isStandWidebodyCompatible(pos)) needsDemotion = true;
+        if (isHeavy && !isStandCatFCompatible(pos)) needsDemotion = true;
+        if (!isWide) {
+            const sched = topology.get(pos);
+            if (sched && sched.isMarsCenter) needsDemotion = true;
+        }
+        if (isContactStand(pos)) {
+            const isArrDom = f.type === 'turnaround' ? (f.arrivalIsDomestic ?? f.isDomestic) : f.isDomestic;
+            const isDepDom = f.type === 'turnaround' ? (f.departureIsDomestic ?? f.isDomestic) : f.isDomestic;
+            if (concourse === 'Concourse G' && (!isArrDom && !isDepDom)) needsDemotion = true;
+            else if (concourse !== 'Concourse G' && concourse.startsWith('Concourse') && (isArrDom && isDepDom)) needsDemotion = true;
+        }
+
+        if (needsDemotion) {
+            f.parkingPosition = null;
+            flightUpdates.delete(f.id);
+            const arrMs = f.scheduledArrival.getTime();
+            const depMs = f.scheduledDeparture.getTime();
+            for (const ap of ['APRON 1', 'APRON 2', 'APRON 3', 'APRON 4', 'APRON 5']) {
+                for (const s of (CONCOURSE_LAYOUT[ap] || [])) {
+                    const sched = topology.get(s);
+                    if (sched && canFitOnStand(sched, arrMs, depMs, isWide, topology, isHeavy)) {
+                        placeOnStand(sched, arrMs, depMs, f.id);
+                        f.parkingPosition = s;
+                        flightUpdates.set(f.id, s);
+                        break;
+                    }
+                }
+                if (f.parkingPosition) break;
+            }
+        }
+    });
+
+    const stats = calculateBridgeUtilization(updatedFlights, startDate, endDate);
+
+    return {
+        flights: updatedFlights,
+        stats,
+        swapDetails,
+        totalSwapsPerformed,
+        netFlightsGained,
+        gapFillsPerformed
+    };
+}
+
+// ---------------------------------------------------------------------------
+// 6. Master AI Bridge Allocation Entry Point
+// ---------------------------------------------------------------------------
+export function runAiBridgeAllocation(
+    allFlights: Flight[],
+    startDate?: Date,
+    endDate?: Date
+): AiAllocationResult {
+    const existingContactCount = allFlights.filter(f => f.parkingPosition && isContactStand(f.parkingPosition)).length;
+
+    // If flights already have contact stand assignments from human dispatcher, run Warm-Start Optimization
+    let elevateResult: AiAllocationResult | null = null;
+    if (existingContactCount > 0) {
+        elevateResult = runPreserveAndElevateAllocation(allFlights, startDate, endDate);
+    }
+
+    const scratchResult = runFromScratchAllocation(allFlights, startDate, endDate);
+
+    // If elevateResult exists and achieved >= bridge assigned count, prefer it!
+    if (elevateResult && elevateResult.stats.bridgeAssignedCount >= scratchResult.stats.bridgeAssignedCount) {
+        return elevateResult;
+    }
+
+    return scratchResult;
 }

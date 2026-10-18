@@ -864,6 +864,7 @@ const App: React.FC<{ user: User }> = ({ user }) => {
 
         setTimeout(() => {
             try {
+                const initialStats = calculateBridgeUtilization(flights, startDate, endDate);
                 const { flights: newFlights, stats, swapDetails, totalSwapsPerformed, netFlightsGained, gapFillsPerformed } = runAiBridgeAllocation(flights, startDate, endDate);
 
                 const newHistoryEntry: FlightHistoryEntry = {
@@ -908,6 +909,7 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                 // Open AI Report Card Modal
                 setAiReportData({
                     stats,
+                    initialStats,
                     swapDetails,
                     totalSwapsPerformed,
                     netFlightsGained,

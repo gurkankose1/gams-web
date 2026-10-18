@@ -3,6 +3,7 @@ import { BridgeUtilizationStats, SwapDetail } from '../services/ai-allocator.ts'
 
 export interface AiReportData {
     stats: BridgeUtilizationStats;
+    initialStats?: BridgeUtilizationStats;
     swapDetails: SwapDetail[];
     totalSwapsPerformed: number;
     netFlightsGained: number;
@@ -15,18 +16,21 @@ interface AiAllocationReportModalProps {
     report: AiReportData | null;
 }
 
-const HISTORICAL_HUMAN_BRIDGE_COUNT = 1912;
-const HISTORICAL_HUMAN_BRIDGE_RATE = 76.4;
-
 const AiAllocationReportModal: React.FC<AiAllocationReportModalProps> = ({ isOpen, onClose, report }) => {
     const [activeTab, setActiveTab] = useState<'kpi' | 'swaps' | 'rules'>('kpi');
 
     if (!isOpen || !report) return null;
 
-    const { stats, swapDetails, totalSwapsPerformed, netFlightsGained, gapFillsPerformed } = report;
+    const { stats, initialStats, swapDetails, totalSwapsPerformed, netFlightsGained, gapFillsPerformed } = report;
     const aiBridgeCount = stats.bridgeAssignedCount;
-    const diffVsHuman = aiBridgeCount - HISTORICAL_HUMAN_BRIDGE_COUNT;
-    const rateDiff = stats.bridgeRate - HISTORICAL_HUMAN_BRIDGE_RATE;
+    
+    // Read the actual human baseline from initialStats (before AI ran)
+    const humanBridgeCount = initialStats?.bridgeAssignedCount ?? (stats.eligibleFlightsCount > 1000 ? 1912 : stats.bridgeAssignedCount);
+    const humanBridgeRate = initialStats?.bridgeRate ?? (stats.eligibleFlightsCount > 1000 ? 76.4 : stats.bridgeRate);
+    const humanEligibleCount = initialStats?.eligibleFlightsCount ?? stats.eligibleFlightsCount;
+
+    const diffVsHuman = aiBridgeCount - humanBridgeCount;
+    const rateDiff = stats.bridgeRate - humanBridgeRate;
 
     return (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[95] p-4 backdrop-blur-sm animate-fade-in select-none">
@@ -96,16 +100,16 @@ const AiAllocationReportModal: React.FC<AiAllocationReportModalProps> = ({ isOpe
                                         <span className="text-xs font-bold text-gray-400 uppercase tracking-wider flex items-center gap-1.5">
                                             <span>👤</span> Gerçekleşen İnsan Dispatcher
                                         </span>
-                                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-700 text-gray-300">Tarihsel Referans</span>
+                                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-700 text-gray-300">Yüklenen Plan (Referans)</span>
                                     </div>
                                     <div className="my-3">
-                                        <div className="text-3xl font-black text-gray-200">%{HISTORICAL_HUMAN_BRIDGE_RATE.toFixed(1)}</div>
+                                        <div className="text-3xl font-black text-gray-200">%{humanBridgeRate.toFixed(1)}</div>
                                         <div className="text-xs text-gray-400 mt-1">
-                                            <strong className="text-gray-200">{HISTORICAL_HUMAN_BRIDGE_COUNT.toLocaleString('tr-TR')}</strong> yolcu uçuşu köprüye alındı
+                                            <strong className="text-gray-200">{humanBridgeCount.toLocaleString('tr-TR')}</strong> / {humanEligibleCount.toLocaleString('tr-TR')} yolcu uçuşu köprüdeydi
                                         </div>
                                     </div>
                                     <div className="text-[11px] text-gray-400 border-t border-gray-750 pt-2">
-                                        Uzun yatan geniş gövdeler köprüde tutulduğu için birçok dar gövde açık aprona taştı.
+                                        Mevcut Excel planında köprüye bağlanan gerçekleşen uçuşlar.
                                     </div>
                                 </div>
 
@@ -127,7 +131,7 @@ const AiAllocationReportModal: React.FC<AiAllocationReportModalProps> = ({ isOpe
                                         </div>
                                     </div>
                                     <div className="text-[11px] text-purple-200/80 border-t border-purple-900/60 pt-2 flex items-center gap-1">
-                                        <span>🎯</span> MARS doluluğu, gündüz yatış kısıtı ve geriye dönük takas uygulandı.
+                                        <span>🎯</span> MARS doluluğu, boşluk doldurma ve akıllı takas uygulandı.
                                     </div>
                                 </div>
 
@@ -137,20 +141,30 @@ const AiAllocationReportModal: React.FC<AiAllocationReportModalProps> = ({ isOpe
                                         <span className="text-xs font-bold text-emerald-300 uppercase tracking-wider flex items-center gap-1.5">
                                             <span>📈</span> Net Kazanç & Operasyonel Fark
                                         </span>
-                                        <span className="text-[10px] font-black px-1.5 py-0.5 rounded bg-emerald-500/30 text-emerald-200 border border-emerald-400/40">
-                                            +%{rateDiff.toFixed(1)}
+                                        <span className={`text-[10px] font-black px-1.5 py-0.5 rounded border ${
+                                            rateDiff >= 0
+                                                ? 'bg-emerald-500/30 text-emerald-200 border-emerald-400/40'
+                                                : 'bg-amber-500/30 text-amber-200 border-amber-400/40'
+                                        }`}>
+                                            {rateDiff >= 0 ? `+` : ``}%{rateDiff.toFixed(1)}
                                         </span>
                                     </div>
                                     <div className="my-3">
-                                        <div className="text-3xl font-black text-emerald-400">
+                                        <div className={`text-3xl font-black ${diffVsHuman >= 0 ? 'text-emerald-400' : 'text-amber-400'}`}>
                                             {diffVsHuman >= 0 ? `+${diffVsHuman}` : diffVsHuman} Uçak
                                         </div>
                                         <div className="text-xs text-gray-300 mt-1">
-                                            İnsan planlamasına kıyasla fazladan körüğe bağlandı
+                                            {diffVsHuman > 0 
+                                                ? 'İnsan planlamasına kıyasla fazladan körüğe bağlandı' 
+                                                : diffVsHuman === 0 
+                                                    ? 'Mevcut körük planı korundu, ilave boşluk bulunamadı' 
+                                                    : 'Sıfırdan planlama nedeniyle sıkışık dönüşler yeniden düzenlendi'}
                                         </div>
                                     </div>
                                     <div className="text-[11px] text-emerald-200/80 border-t border-emerald-900/60 pt-2">
-                                        🚌 On binlerce yolcu otobüsten kurtarıldı, doğrudan terminale bağlandı!
+                                        {diffVsHuman > 0 
+                                            ? '🚌 Binlerce yolcu otobüsten kurtarıldı, doğrudan terminale bağlandı!' 
+                                            : '🎯 Tüm emniyet kuralları ve körük limitleri sağlandı.'}
                                     </div>
                                 </div>
                             </div>
