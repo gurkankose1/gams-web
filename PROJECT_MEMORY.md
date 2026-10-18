@@ -21,8 +21,9 @@
    - Concourse yük dengelemesi (load balancing)
    - C/E concourse narrowbody önceliklendirmesi
    - Widebody köprü yükseltme swap (açıktaki geniş gövdeyi köprüye çekme mantığı) tamamlandı.
-2. **GitHub & Canlı Dağıtım:**
+2. **Kritik Kural & Sınıflandırma Düzeltmeleri (18.10.2026):**
+   - **D1, D2, D3, D4, D5 Stand Kısıtlaması:** Concourse D'deki D1-D5 stantları kesin olarak sadece Dar Gövde (Cat C) olarak tanımlandı. Geniş gövdeli uçakların bu pozisyonlara atanması engellendi; dar gövdeli uçuşların öncelikli olarak bu stantlara yerleşmesi sağlandı.
+   - **A380 (A388 / 388) & Code F Geniş Gövde Düzeltmesi:** Sistemde ICAO `A388` ve IATA `388` kodlarının `WIDE_BODY_AIRCRAFT` ve `CAT_F_HEAVY_STANDS` listesinde eksik olması nedeniyle A380'in dar gövde gibi algılanması ve körükten dışlanması düzeltildi. A2 körük standı A388 için yetkilendirildi; UI ve gelir hesaplamasında `acCategory === 'D' | 'E' | 'F'` desteği eklendi.
+3. **GitHub & Canlı Dağıtım:**
    - Commit başarıyla GitHub'a gönderildi (`node single_commit_push.js`).
    - Vercel üzerinde canlıya alındı (`vercel --prod --yes`).
-3. **Bekleyen Son İşlem:**
-   - Kullanıcı `C:\Users\gurka\Downloads\GAMS_Stand_Gate_Raporu_2026-10-18 (2).xlsx` çıktısını göndererek algoritmanın çıktısını incelemeyi ve daha iyisi yapılıp yapılamayacağını analiz etmeyi istedi.

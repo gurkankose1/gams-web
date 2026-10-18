@@ -266,23 +266,20 @@ export function validateFlightPlacement(
         }
 
         // --- RULE F: Domestic vs International Concourse Rules (PDF 2) ---
-        let isDepartureDomestic: boolean | null = null;
-        if (flight.type === 'turnaround') {
-            isDepartureDomestic = flight.departureIsDomestic ?? flight.isDomestic;
-        } else if (flight.type === 'departure') {
-            isDepartureDomestic = flight.isDomestic;
-        } else if (flight.type === 'arrival') {
-            isDepartureDomestic = flight.arrivalIsDomestic ?? flight.isDomestic;
+        const isArrDom = flight.type === 'turnaround' ? (flight.arrivalIsDomestic ?? flight.isDomestic) : flight.isDomestic;
+        const isDepDom = flight.type === 'turnaround' ? (flight.departureIsDomestic ?? flight.isDomestic) : flight.isDomestic;
+
+        // 1. Saf İç Hat (İç - İç): Dış hat körüklerine park edemez, Concourse G veya Remote kullanmalı
+        if (isArrDom && isDepDom && isInternationalConcourse(targetPosition)) {
+            reasons.push(`Saf İç hat uçuşu (${flight.arrivalFlightNumber || ''}/${flight.departureFlightNumber || ''}) Dış hat körüğüne (${targetPosition}) park edemez.`);
         }
 
-        if (isDepartureDomestic !== null) {
-            if (isDomesticConcourse(targetPosition) && !isDepartureDomestic) {
-                reasons.push(`Dış hat uçuşu İç hat körüğüne (${targetPosition}) park edemez.`);
-            }
-            if (isInternationalConcourse(targetPosition) && isDepartureDomestic) {
-                reasons.push(`İç hat uçuşu Dış hat körüğüne (${targetPosition}) park edemez.`);
-            }
+        // 2. Saf Dış Hat (Dış - Dış): İç hat körüğüne (Concourse G) park edemez, Dış hat körükleri kullanmalı
+        if (!isArrDom && !isDepDom && isDomesticConcourse(targetPosition)) {
+            reasons.push(`Saf Dış hat uçuşu (${flight.arrivalFlightNumber || ''}/${flight.departureFlightNumber || ''}) İç hat körüğüne (${targetPosition}) park edemez.`);
         }
+
+        // 3. Karma Uçuşlar (Dış - İç veya İç - Dış): İstediği körüğe (A-G) park edebilir, kural ihlali sayılmaz!
 
         // --- RULE G: Cargo Flight Apron Restrictions (PDF 2) ---
         if (isCargo) {

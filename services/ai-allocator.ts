@@ -222,15 +222,27 @@ export function getAllowedBridgeConcourses(f: Flight): string[] {
             : ['Concourse A', 'Concourse B', 'Concourse C', 'Concourse D', 'Concourse E', 'Concourse F'];
     }
 
-    // Turnaround and departure flights:
-    // IST bridge gate boarding is governed by the departure leg destination:
-    // - Domestic departure (İç-İç or Dış-İç): Boards at Domestic Pier G only.
-    // - International departure (Dış-Dış or İç-Dış): Boards at International Piers (A, B, C, D, E, F). Pier G is strictly forbidden!
-    if (isDepDom) {
+    // Single departure flight
+    if (f.type === 'departure') {
+        return isDepDom
+            ? ['Concourse G']
+            : ['Concourse A', 'Concourse B', 'Concourse C', 'Concourse D', 'Concourse E', 'Concourse F'];
+    }
+
+    // Turnaround flights:
+    // 1. Saf İç Hat (İç - İç): Sadece İç Hat İskelesi (Concourse G)
+    if (isArrDom && isDepDom) {
         return ['Concourse G'];
-    } else {
+    }
+
+    // 2. Saf Dış Hat (Dış - Dış): Sadece Dış Hat İskeleleri (Concourse A, B, C, D, E, F)
+    if (!isArrDom && !isDepDom) {
         return ['Concourse A', 'Concourse B', 'Concourse C', 'Concourse D', 'Concourse E', 'Concourse F'];
     }
+
+    // 3. Karma Uçuşlar (Dış - İç veya İç - Dış):
+    // Havalimanı kuralı: Kural şartı yoktur; boş olan herhangi bir körüğe (A-G) yanaşabilir!
+    return ['Concourse A', 'Concourse B', 'Concourse C', 'Concourse D', 'Concourse E', 'Concourse F', 'Concourse G'];
 }
 
 // ---------------------------------------------------------------------------
@@ -554,26 +566,62 @@ export function runAiBridgeAllocation(
             }
         }
 
-        // Step 2: Dynamic Concourse Load Balancing for MARS sub-stands (L/R)
+        // Step 2: Dynamic Concourse Load Balancing for MARS sub-stands (L/R) with Synchronized Pairing
         if (!placed) {
-            // Sort allowed concourses by least loaded first in this time window
             const balancedConcourses = [...allowedConc].sort((c1, c2) => {
                 return getConcourseLoad(c1, arrMs, depMs) - getConcourseLoad(c2, arrMs, depMs);
             });
 
+            interface SubStandCandidate {
+                sched: StandSchedule;
+                syncScore: number;
+            }
+            const subCandidates: SubStandCandidate[] = [];
+
             for (const conc of balancedConcourses) {
                 const stands = CONCOURSE_LAYOUT[conc] || [];
-                // Try MARS sub-stands (L/R) in this concourse first
                 for (const s of stands) {
                     const sched = topology.get(s);
                     if (sched && sched.isMarsSub && canFitOnStand(sched, arrMs, depMs, false, topology)) {
-                        placeOnStand(sched, arrMs, depMs, flight.id);
-                        flightUpdates.set(flight.id, sched.stand);
-                        placed = true;
-                        break;
+                        // Check counterpart sub-stand synchronization:
+                        // If counterpart (e.g. A6R) has a flight arriving and departing around the same time,
+                        // placing this flight on A6L ensures BOTH vacate together, freeing A6 Center for widebody!
+                        let syncScore = 0;
+                        if (sched.marsCenterStand) {
+                            const centerSched = topology.get(sched.marsCenterStand);
+                            if (centerSched && centerSched.marsSubStands) {
+                                const siblingName = centerSched.marsSubStands.find(sub => sub !== sched.stand);
+                                if (siblingName) {
+                                    const sibSched = topology.get(siblingName);
+                                    if (sibSched && sibSched.intervals.length > 0) {
+                                        for (const sInterval of sibSched.intervals) {
+                                            const arrDiff = Math.abs(arrMs - sInterval.start) / (60 * 1000);
+                                            const depDiff = Math.abs(depMs - sInterval.end) / (60 * 1000);
+                                            if (arrDiff <= 45 && depDiff <= 45) {
+                                                syncScore = Math.max(syncScore, 100 - (arrDiff + depDiff));
+                                            } else if (depDiff <= 60) {
+                                                syncScore = Math.max(syncScore, 50 - depDiff);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        subCandidates.push({ sched, syncScore });
                     }
                 }
-                if (placed) break;
+            }
+
+            // Prioritize highest synchronization score (best pairs) first!
+            subCandidates.sort((a, b) => b.syncScore - a.syncScore);
+
+            for (const cand of subCandidates) {
+                if (canFitOnStand(cand.sched, arrMs, depMs, false, topology)) {
+                    placeOnStand(cand.sched, arrMs, depMs, flight.id);
+                    flightUpdates.set(flight.id, cand.sched.stand);
+                    placed = true;
+                    break;
+                }
             }
         }
 
@@ -612,18 +660,10 @@ export function runAiBridgeAllocation(
     // -----------------------------------------------------------------------
     // Pass B: Widebody Flights -> Concourse Balancing, Single Wide Stands & MARS Center Stands
     // -----------------------------------------------------------------------
-    const daytimeLongStayWide: Flight[] = [];
-
     wideEligible.forEach(flight => {
         const arrMs = flight.scheduledArrival.getTime();
         const depMs = flight.scheduledDeparture.getTime();
         const allowedConc = getAllowedBridgeConcourses(flight);
-
-        // Rule 1: Daytime long stay widebodies (> 3.5h) must not tie up bridge stands
-        if (isDaytimeLongStay(flight)) {
-            daytimeLongStayWide.push(flight);
-            return;
-        }
 
         const balancedConc = [...allowedConc].sort((c1, c2) => {
             return getConcourseLoad(c1, arrMs, depMs) - getConcourseLoad(c2, arrMs, depMs);
@@ -703,18 +743,15 @@ export function runAiBridgeAllocation(
         }
     });
 
-    // Add deferred long-stay widebodies to overflow pool
-    overflowToRemote.push(...daytimeLongStayWide);
-
     // -----------------------------------------------------------------------
     // Pass B.2: "Eğer Boş Yer Kalırsa" - Remaining narrowbody turnarounds fill idle widebody contact stands
     // -----------------------------------------------------------------------
-    const shortStayOverflowNarrow = overflowToRemote.filter(f => getDurationMins(f) / 60 <= 3.5);
-    shortStayOverflowNarrow.sort((a, b) => getDurationMins(a) - getDurationMins(b));
+    const candidateOverflowNarrow = overflowToRemote.filter(f => !isFlightWide(f));
+    candidateOverflowNarrow.sort((a, b) => getDurationMins(a) - getDurationMins(b));
 
     const remainingPlacedNarrowIds = new Set<string>();
 
-    for (const narrowFlight of shortStayOverflowNarrow) {
+    for (const narrowFlight of candidateOverflowNarrow) {
         const arrMs = narrowFlight.scheduledArrival.getTime();
         const depMs = narrowFlight.scheduledDeparture.getTime();
         const allowedConc = getAllowedBridgeConcourses(narrowFlight);
@@ -892,7 +929,7 @@ export function runAiBridgeAllocation(
         // 1 or 2 narrowbodies currently on that stand (or its MARS sub-stands) to empty slots on C, E, or other contact stands.
         const currentRemoteWide = eligibleFlights.filter(f => {
             const pos = flightUpdates.get(f.id);
-            return pos && !isContactStand(pos) && isFlightWide(f) && getDurationMins(f) / 60 <= 3.5;
+            return pos && !isContactStand(pos) && isFlightWide(f);
         });
 
         currentRemoteWide.sort((a, b) => getDurationMins(a) - getDurationMins(b));
@@ -1244,12 +1281,16 @@ export function runAiBridgeAllocation(
         }
 
         // Rule 2: Pier G vs International
-        const isDepDom = f.type === 'turnaround' ? (f.departureIsDomestic ?? f.isDomestic) : (f.type === 'arrival' ? (f.arrivalIsDomestic ?? f.isDomestic) : f.isDomestic);
-        if (concourse === 'Concourse G' && !isDepDom) {
-            console.warn(`[SAFETY NET] Dış hat flight on Concourse G prevented (${pos}, ${f.id}). Demoting to remote.`);
+        const isArrDom = f.type === 'turnaround' ? (f.arrivalIsDomestic ?? f.isDomestic) : f.isDomestic;
+        const isDepDom = f.type === 'turnaround' ? (f.departureIsDomestic ?? f.isDomestic) : f.isDomestic;
+
+        // Saf Dış Hat (Dış - Dış) asla Concourse G'ye verilemez
+        if (concourse === 'Concourse G' && (!isArrDom && !isDepDom)) {
+            console.warn(`[SAFETY NET] Saf Dış hat flight on Concourse G prevented (${pos}, ${f.id}). Demoting to remote.`);
             needsDemotion = true;
-        } else if (concourse !== 'Concourse G' && concourse.startsWith('Concourse') && isDepDom) {
-            console.warn(`[SAFETY NET] İç hat flight on International Concourse prevented (${pos}, ${f.id}). Demoting to remote.`);
+        } else if (concourse !== 'Concourse G' && concourse.startsWith('Concourse') && (isArrDom && isDepDom)) {
+            // Saf İç Hat (İç - İç) asla Concourse A-F'ye verilemez
+            console.warn(`[SAFETY NET] Saf İç hat flight on International Concourse prevented (${pos}, ${f.id}). Demoting to remote.`);
             needsDemotion = true;
         }
 
