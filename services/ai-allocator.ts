@@ -334,6 +334,9 @@ function canFitOnStand(
     // 1. Physical compatibility
     if (isWide && schedule.isMarsSub) return false;
     if (isWide && !schedule.isWideCompatible) return false;
+    // Strict MARS Rule: Narrowbody (Cat A, B, C) cannot park on MARS Center stands!
+    // It must park on L or R sub-stands (e.g. A11L/A11R), never on Center (A11).
+    if (!isWide && schedule.isMarsCenter) return false;
     if (isHeavy) {
         const baseStand = schedule.stand.replace(/[LR]$/, '');
         if (!CAT_F_HEAVY_STANDS.has(baseStand) && !CAT_F_HEAVY_STANDS.has(schedule.stand)) {
@@ -761,7 +764,9 @@ export function runAiBridgeAllocation(
             const stands = CONCOURSE_LAYOUT[c] || [];
             stands.forEach(s => {
                 const sched = topology.get(s);
-                if (sched && (sched.concourse === 'Concourse D' || sched.isMarsCenter)) {
+                // Only non-MARS single stands (e.g. A9, B4, B13-B17, F14-F19, D6-D17)
+                // MARS center stands are strictly excluded for narrowbodies!
+                if (sched && !sched.isMarsSub && !sched.isMarsCenter) {
                     candidateWideStands.push(sched);
                 }
             });
@@ -1276,6 +1281,15 @@ export function runAiBridgeAllocation(
             const basePos = pos.replace(/[LR]$/, '');
             if (!CAT_F_HEAVY_STANDS.has(basePos) && !CAT_F_HEAVY_STANDS.has(pos)) {
                 console.warn(`[SAFETY NET] Heavy Cat F violation prevented on ${pos} for flight ${f.id}. Demoting to remote.`);
+                needsDemotion = true;
+            }
+        }
+
+        // Rule 1.8: Strict MARS Rule: No narrowbody on MARS Center stand
+        if (!isWide) {
+            const sched = topology.get(pos);
+            if (sched && sched.isMarsCenter) {
+                console.warn(`[SAFETY NET] Narrowbody on MARS center stand ${pos} prevented for flight ${f.id}. Demoting to remote.`);
                 needsDemotion = true;
             }
         }

@@ -1,5 +1,5 @@
 import { Flight } from '../types.ts';
-import { CONCOURSE_LAYOUT, TURKISH_DOMESTIC_AIRPORTS } from '../constants.ts';
+import { CONCOURSE_LAYOUT, TURKISH_DOMESTIC_AIRPORTS, PARKING_POSITIONS } from '../constants.ts';
 
 // ----------------------------------------------------------------------
 // 1. Aircraft Classification Rules
@@ -122,7 +122,7 @@ export const WINGLET_ADJACENT_MAP: Record<string, string[]> = {
 // 3. MARS Center vs Sub-Stands Rules (PDF 3)
 // ----------------------------------------------------------------------
 
-export function getMarsRelatedPositions(pos: string): { center: string; subStands: string[]; isSubStand: boolean } {
+export function getMarsRelatedPositions(pos: string): { center: string; subStands: string[]; isSubStand: boolean; hasSubStands: boolean } {
     const isSub = pos.endsWith('L') || pos.endsWith('R');
     let center = pos;
     if (isSub) {
@@ -131,8 +131,10 @@ export function getMarsRelatedPositions(pos: string): { center: string; subStand
     const left = `${center}L`;
     const right = `${center}R`;
     
-    const subStands = isSub ? [center] : [left, right];
-    return { center, subStands, isSubStand: isSub };
+    const existingSubs = [left, right].filter(s => PARKING_POSITIONS.includes(s));
+    const subStands = isSub ? [center] : existingSubs;
+    const hasSubStands = existingSubs.length > 0;
+    return { center, subStands, isSubStand: isSub, hasSubStands };
 }
 
 // ----------------------------------------------------------------------
@@ -208,7 +210,7 @@ export function validateFlightPlacement(
     const flightArr = flight.scheduledArrival.getTime();
     const flightDep = flight.scheduledDeparture.getTime();
 
-    // --- RULE A: MARS / Widebody Stand Restriction (PDF 3) ---
+    // --- RULE A: MARS / Widebody & Narrowbody Stand Restriction (PDF 3) ---
     const concourse = Object.keys(CONCOURSE_LAYOUT).find(c => CONCOURSE_LAYOUT[c].includes(targetPosition));
     const isNarrowOnlyContact = concourse === 'Concourse C' || concourse === 'Concourse E' || NARROW_ONLY_CONTACT_STANDS.has(targetPosition);
     const mars = getMarsRelatedPositions(targetPosition);
@@ -217,6 +219,11 @@ export function validateFlightPlacement(
             reasons.push(`Geniş gövdeli uçak (${flight.aircraftType}) L/R alt pozisyona (${targetPosition}) park edemez. Center pozisyona (${mars.center}) verilmeli.`);
         } else if (isNarrowOnlyContact) {
             reasons.push(`Geniş gövdeli uçak (${flight.aircraftType}) dar gövde körük pozisyonuna (${targetPosition}) park edemez. C, E ve D1-D5 iskeleleri yalnızca dar gövde (Cat C) içindir.`);
+        }
+    } else {
+        // Narrowbody (Cat A, B, C): Cannot park on a MARS Center stand if L/R sub-stands exist
+        if (!mars.isSubStand && mars.hasSubStands) {
+            reasons.push(`Dar gövdeli uçak (${flight.aircraftType}) MARS Center pozisyonuna (${targetPosition}) park edemez. L veya R alt pozisyonuna (${targetPosition}L / ${targetPosition}R) park etmelidir.`);
         }
     }
 
