@@ -101,10 +101,6 @@ export const isBridgePosition = (position: string | null): boolean => {
 };
 
 export interface RevenueDetails {
-  landingEur: number;
-  landingTry: number;
-  parkingEur: number;
-  parkingTry: number;
   bridgeEur: number;
   bridgeTry: number;
   gpuEur: number;
@@ -113,8 +109,8 @@ export interface RevenueDetails {
   pcaTry: number;
   waterEur: number;
   waterTry: number;
-  paxServiceEur: number;
-  paxServiceTry: number;
+  vdgsEur: number;
+  vdgsTry: number;
   totalEur: number;
   totalTry: number;
   isBridge: boolean;
@@ -125,6 +121,13 @@ export interface RevenueDetails {
   bridgeCount: number;
   gpuCount: number;
   pcaCount: number;
+  // Zeroed out parameters (excluded per user specification)
+  landingEur: number;
+  landingTry: number;
+  parkingEur: number;
+  parkingTry: number;
+  paxServiceEur: number;
+  paxServiceTry: number;
 }
 
 export const calculateRevenue = (flight: Flight): RevenueDetails => {
@@ -135,26 +138,14 @@ export const calculateRevenue = (flight: Flight): RevenueDetails => {
 
   const isWideBody = flight.acCategory === 'D' || flight.acCategory === 'E' || flight.acCategory === 'F' || WIDE_BODY_AIRCRAFT.has(flight.aircraftType?.toUpperCase().trim() || '');
 
-  // 1. Landing Fee (Konma)
-  const landingRateEur = isDomestic ? 4.50 : 10.50;
-  const landingEur = mtow * landingRateEur;
-  const landingTry = landingEur * EUR_TRY_EXCHANGE_RATE;
+  // 1. Landing, Parking, Passenger Service Fees are excluded per user specification (set to 0)
+  const landingEur = 0;
+  const landingTry = 0;
+  const parkingEur = 0;
+  const parkingTry = 0;
+  const paxServiceEur = 0;
+  const paxServiceTry = 0;
 
-  // 2. Parking Fee (Konaklama)
-  let parkingEur = 0;
-  let parkingDurationHours = 0;
-  if (flight.parkingPosition) {
-    const durationMs = Math.max(0, flight.scheduledDeparture.getTime() - flight.scheduledArrival.getTime());
-    parkingDurationHours = durationMs / (1000 * 60 * 60);
-    if (parkingDurationHours > 2) {
-      const chargeableDays = Math.ceil((parkingDurationHours - 2) / 24);
-      const parkingRateEur = isDomestic ? 0.95 : 2.20;
-      parkingEur = mtow * parkingRateEur * chargeableDays;
-    }
-  }
-  const parkingTry = parkingEur * EUR_TRY_EXCHANGE_RATE;
-
-  // 3. Passenger Service Fee (Yolcu Servis)
   let paxCount = 0;
   if (flight.raw_data) {
     const rawPax = flight.raw_data['Arr Pax'] || flight.raw_data['Dep Pax'] || flight.raw_data.pax || flight.raw_data.Pax;
@@ -164,18 +155,23 @@ export const calculateRevenue = (flight: Flight): RevenueDetails => {
     paxCount = isWideBody ? 260 : 145;
   }
 
-  const paxRateEur = isDomestic ? 2.50 : 17.50;
-  const paxServiceEur = paxCount * paxRateEur;
-  const paxServiceTry = paxServiceEur * EUR_TRY_EXCHANGE_RATE;
+  // 2. Parking duration calculation for bridge services
+  let parkingDurationHours = 0;
+  if (flight.parkingPosition) {
+    const durationMs = Math.max(0, flight.scheduledDeparture.getTime() - flight.scheduledArrival.getTime());
+    parkingDurationHours = durationMs / (1000 * 60 * 60);
+  }
 
-  // 4. Köprülü (Pier A-G) Ekipman ve Köprü Hizmetleri Hesaplamaları
-  // Rule: Açık (Remote) pozisyonlar için Köprü, GPU, PCA, Su = €0 ("Açıklar için hiçbirşeyi hesaplama")
+  // 3. Köprülü (Pier A-G) Ekipman ve Köprü Hizmetleri Hesaplamaları (Sadece PBB, GPU, PCA, Water, VDGS)
+  // Rule: Açık (Remote) pozisyonlar için Köprü, GPU, PCA, Su, VDGS = 0 ("Açıklar için hiçbirşeyi hesaplama")
   const isBridge = isBridgePosition(flight.parkingPosition);
 
   let bridgeEur = 0;
   let gpuEur = 0;
   let pcaEur = 0;
   let waterEur = 0;
+  let vdgsTry = 0;
+  let vdgsEur = 0;
 
   // Rule: Yatı süresi 4 saat ve üzeri ise servis süresi tam 4 saate fixlenir (serviceHours = Math.min(duration, 4))
   const serviceHours = isBridge && parkingDurationHours > 0
@@ -215,6 +211,10 @@ export const calculateRevenue = (flight: Flight): RevenueDetails => {
 
     // D) Su Servisi (Water)
     waterEur = 45.00; // €45.00 maktu iniş başına
+
+    // E) VDGS (Otomatik Park Ettirme Sistemi) - Resmi DHMİ 2026 Maktu İniş Başı Ücreti (446.00 TL)
+    vdgsTry = 446.00;
+    vdgsEur = vdgsTry / EUR_TRY_EXCHANGE_RATE;
   }
 
   const bridgeTry = bridgeEur * EUR_TRY_EXCHANGE_RATE;
@@ -222,15 +222,11 @@ export const calculateRevenue = (flight: Flight): RevenueDetails => {
   const pcaTry = pcaEur * EUR_TRY_EXCHANGE_RATE;
   const waterTry = waterEur * EUR_TRY_EXCHANGE_RATE;
 
-  // Total Revenue
-  const totalEur = landingEur + parkingEur + paxServiceEur + bridgeEur + gpuEur + pcaEur + waterEur;
-  const totalTry = totalEur * EUR_TRY_EXCHANGE_RATE;
+  // Sadece PBB, GPU, PCA, Water ve VDGS servislerinden gelen gelirler
+  const totalEur = bridgeEur + gpuEur + pcaEur + waterEur + vdgsEur;
+  const totalTry = bridgeTry + gpuTry + pcaTry + waterTry + vdgsTry;
 
   return {
-    landingEur,
-    landingTry,
-    parkingEur,
-    parkingTry,
     bridgeEur,
     bridgeTry,
     gpuEur,
@@ -239,8 +235,8 @@ export const calculateRevenue = (flight: Flight): RevenueDetails => {
     pcaTry,
     waterEur,
     waterTry,
-    paxServiceEur,
-    paxServiceTry,
+    vdgsEur,
+    vdgsTry,
     totalEur,
     totalTry,
     isBridge,
@@ -251,5 +247,11 @@ export const calculateRevenue = (flight: Flight): RevenueDetails => {
     bridgeCount,
     gpuCount,
     pcaCount,
+    landingEur,
+    landingTry,
+    parkingEur,
+    parkingTry,
+    paxServiceEur,
+    paxServiceTry,
   };
 };

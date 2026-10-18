@@ -10,13 +10,11 @@ export const BottomRevenueSummaryBar: React.FC<BottomRevenueSummaryBarProps> = (
   const [isCollapsed, setIsCollapsed] = useState(false);
 
   const stats = useMemo(() => {
-    let landingTotalEur = 0;
-    let parkingTotalEur = 0;
     let bridgeTotalEur = 0;
     let gpuTotalEur = 0;
     let pcaTotalEur = 0;
     let waterTotalEur = 0;
-    let paxServiceTotalEur = 0;
+    let vdgsTotalEur = 0;
     let grandTotalEur = 0;
 
     let assignedCount = 0;
@@ -31,13 +29,11 @@ export const BottomRevenueSummaryBar: React.FC<BottomRevenueSummaryBarProps> = (
       assignedCount++;
       const rev = calculateRevenue(flight);
 
-      landingTotalEur += rev.landingEur;
-      parkingTotalEur += rev.parkingEur;
       bridgeTotalEur += rev.bridgeEur;
       gpuTotalEur += rev.gpuEur;
       pcaTotalEur += rev.pcaEur;
       waterTotalEur += rev.waterEur;
-      paxServiceTotalEur += rev.paxServiceEur;
+      vdgsTotalEur += rev.vdgsEur;
       grandTotalEur += rev.totalEur;
 
       if (rev.isBridge) {
@@ -60,13 +56,11 @@ export const BottomRevenueSummaryBar: React.FC<BottomRevenueSummaryBarProps> = (
     const grandTotalTry = grandTotalEur * EUR_TRY_EXCHANGE_RATE;
 
     return {
-      landingTotalEur,
-      parkingTotalEur,
       bridgeTotalEur,
       gpuTotalEur,
       pcaTotalEur,
       waterTotalEur,
-      paxServiceTotalEur,
+      vdgsTotalEur,
       grandTotalEur,
       grandTotalTry,
       assignedCount,
@@ -139,18 +133,8 @@ export const BottomRevenueSummaryBar: React.FC<BottomRevenueSummaryBarProps> = (
         </div>
       </div>
 
-      {/* Orta: Kategori Bazlı Gelir Kırılımı */}
+      {/* Orta: Kategori Bazlı Gelir Kırılımı (Sadece PBB, GPU, PCA, Su ve VDGS) */}
       <div className="hidden lg:flex items-center space-x-3 bg-gray-900/60 border border-gray-700/50 rounded-lg px-3 py-1.5 text-[10px]">
-        <div>
-          <span className="text-gray-400 block">🛬 Konma</span>
-          <span className="text-white font-bold">{formatEur(stats.landingTotalEur)}</span>
-        </div>
-        <div className="h-6 w-px bg-gray-700" />
-        <div>
-          <span className="text-gray-400 block">🅿️ Konaklama</span>
-          <span className="text-white font-bold">{formatEur(stats.parkingTotalEur)}</span>
-        </div>
-        <div className="h-6 w-px bg-gray-700" />
         <div>
           <span className="text-cyan-300 block">🌉 PBB Köprü</span>
           <span className="text-cyan-200 font-bold">{formatEur(stats.bridgeTotalEur)}</span>
@@ -172,8 +156,8 @@ export const BottomRevenueSummaryBar: React.FC<BottomRevenueSummaryBarProps> = (
         </div>
         <div className="h-6 w-px bg-gray-700" />
         <div>
-          <span className="text-purple-300 block">🧳 Yolcu Servis</span>
-          <span className="text-purple-200 font-bold">{formatEur(stats.paxServiceTotalEur)}</span>
+          <span className="text-emerald-300 block">🅿️ VDGS Park</span>
+          <span className="text-emerald-200 font-bold">{formatEur(stats.vdgsTotalEur)}</span>
         </div>
       </div>
 

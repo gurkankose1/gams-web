@@ -20,6 +20,7 @@ import HeaderRevenueSummary from './components/HeaderRevenueSummary.tsx';
 import BottomRevenueSummaryBar from './components/BottomRevenueSummaryBar.tsx';
 import { runAiBridgeAllocation, calculateBridgeUtilization } from './services/ai-allocator.ts';
 import AiAllocationReportModal, { AiReportData } from './components/AiAllocationReportModal.tsx';
+import AiCopilotModal from './components/AiCopilotModal.tsx';
 import { database } from './firebase.ts';
 import { ref, onValue, set, update, remove } from 'firebase/database';
 import { User } from 'firebase/auth';
@@ -655,6 +656,7 @@ const App: React.FC<{ user: User }> = ({ user }) => {
     const [isReportModalOpen, setReportModalOpen] = useState(false);
     const [aiReportData, setAiReportData] = useState<AiReportData | null>(null);
     const [isAiReportModalOpen, setIsAiReportModalOpen] = useState(false);
+    const [isCopilotOpen, setIsCopilotOpen] = useState(false);
 
     const [selectedFlightIds, setSelectedFlightIds] = useState<Set<string>>(new Set());
     const mainContentRef = useRef<HTMLDivElement>(null);
@@ -861,6 +863,21 @@ const App: React.FC<{ user: User }> = ({ user }) => {
             }
         }, 100);
     }, [flights, startDate, endDate, currentUser.username, maintenanceBlocks, gateList]);
+
+    const handleCopilotUpdates = useCallback((updatedFlights: Flight[], message: string) => {
+        const newHistoryEntry: FlightHistoryEntry = {
+            user: currentUser.username,
+            action: message,
+            timestamp: new Date()
+        };
+        const flightsWithHistory = updatedFlights.map(f => ({
+            ...f,
+            history: [...(f.history || []), newHistoryEntry]
+        }));
+        updateDatabase({ flights: flightsWithHistory, maintenanceBlocks, gates: gateList });
+        setAllocationMessage(message);
+        setTimeout(() => setAllocationMessage(null), 8000);
+    }, [currentUser.username, maintenanceBlocks, gateList]);
     
     // Search and scroll to flight
     useEffect(() => {
@@ -1643,6 +1660,20 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                                 {isAiAllocating ? 'AI Planlıyor...' : 'AI Planla: Senaryo 1 (Maksimum Köprü)'}
                             </button>
 
+                            {/* 🟢 OCC AI CO-PİLOT (CANLI FIRSATLAR & GELİR) */}
+                            <button 
+                                onClick={() => setIsCopilotOpen(true)}
+                                disabled={flights.length === 0}
+                                className="flex items-center gap-1.5 px-3 py-1.5 font-semibold rounded-lg text-white shadow-md transition duration-200 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer select-none border border-emerald-400/50 bg-gradient-to-r from-teal-600 via-emerald-600 to-indigo-600 hover:from-teal-500 hover:to-emerald-500 shadow-emerald-700/30"
+                                title="Körük doluluk oranını artırmak için canlı AI Co-Pilot fırsatlarını ve ek gelir analizini aç"
+                            >
+                                <span className="text-sm">🤖</span>
+                                <span>OCC AI Co-Pilot</span>
+                                <span className="text-[10px] font-extrabold px-1.5 py-0.2 rounded bg-emerald-300 text-gray-950 shadow-sm">
+                                    Fırsatlar
+                                </span>
+                            </button>
+
                             <button 
                                 onClick={handleExportGateExcel} 
                                 className="flex items-center gap-1.5 px-3 py-1.5 font-semibold rounded-lg bg-gray-800/90 hover:bg-gray-750 text-emerald-400 hover:text-emerald-300 border border-emerald-600/40 shadow-sm transition duration-200"
@@ -1849,6 +1880,7 @@ const App: React.FC<{ user: User }> = ({ user }) => {
 
             <ExcelImportReportModal isOpen={isReportModalOpen} onClose={() => setReportModalOpen(false)} report={importReport} />
             <AiAllocationReportModal isOpen={isAiReportModalOpen} onClose={() => setIsAiReportModalOpen(false)} report={aiReportData} />
+            <AiCopilotModal isOpen={isCopilotOpen} onClose={() => setIsCopilotOpen(false)} flights={flights} onApplyUpdates={handleCopilotUpdates} />
             <ExcelErrorModal isOpen={isExcelErrorModalOpen} onClose={() => setExcelErrorModalOpen(false)} errors={excelErrors} />
             {historyModalFlight && <FlightHistoryModal flight={historyModalFlight} onClose={() => setHistoryModalFlight(null)} />}
             {trackingFlight && <FlightTrackingModal flight={trackingFlight} onClose={() => setTrackingFlight(null)} />}

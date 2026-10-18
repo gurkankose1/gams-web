@@ -253,7 +253,7 @@ export function getAllowedBridgeConcourses(f: Flight): string[] {
 // 3. Stand Categorization and MARS Topology
 // ---------------------------------------------------------------------------
 
-interface StandSchedule {
+export interface StandSchedule {
     stand: string;
     concourse: string;
     isMarsCenter: boolean;
@@ -264,7 +264,7 @@ interface StandSchedule {
     intervals: { start: number; end: number; flightId: string }[];
 }
 
-function buildStandTopology(): Map<string, StandSchedule> {
+export function buildStandTopology(): Map<string, StandSchedule> {
     const topology = new Map<string, StandSchedule>();
 
     // Step 1: Detect all MARS relations
@@ -309,7 +309,7 @@ function buildStandTopology(): Map<string, StandSchedule> {
     return topology;
 }
 
-function canFitOnStand(
+export function canFitOnStand(
     schedule: StandSchedule,
     arrMs: number,
     depMs: number,
@@ -360,7 +360,7 @@ function canFitOnStand(
     return true;
 }
 
-function placeOnStand(schedule: StandSchedule, arrMs: number, depMs: number, flightId: string) {
+export function placeOnStand(schedule: StandSchedule, arrMs: number, depMs: number, flightId: string) {
     schedule.intervals.push({ start: arrMs, end: depMs, flightId });
 }
 
