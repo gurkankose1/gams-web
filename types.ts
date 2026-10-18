@@ -24,6 +24,10 @@ export interface Flight {
   arrivalIsDomestic?: boolean;
   departureIsDomestic?: boolean;
   departureMode?: string;
+  trafficMode?: string;
+  acCategory?: string;
+  isTransparent?: boolean;
+  timeSource?: 'BLOCK' | 'ACTUAL' | 'SCHEDULED';
   mtow?: number;
   isSuperSet?: boolean;
   raw_data?: any;

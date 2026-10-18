@@ -21,7 +21,8 @@ const getFlightDisplayText = (flight: Flight): string => {
     const isUnregistered = !flight.regNo || flight.regNo === '' || flight.regNo.startsWith('ER') || flight.regNo === 'DUMMY' || flight.regNo === 'NONE';
     const erPrefix = isUnregistered && !flight.arrivalFlightNumber?.startsWith('ER') && !flight.departureFlightNumber?.startsWith('ER') ? 'ER/' : '';
 
-    const typeSuffix = flight.aircraftType ? ` / ${flight.aircraftType}` : '';
+    const isNoAc = !flight.aircraftType || flight.aircraftType.trim() === '' || flight.isTransparent || flight.aircraftType.toUpperCase() === 'NAN';
+    const typeSuffix = isNoAc ? ' / [A/C BELİRSİZ]' : (flight.aircraftType ? ` / ${flight.aircraftType}` : '');
     const parkingInfo = flight.parkingPosition ? ` [P:${flight.parkingPosition}]` : '';
     const gateInfo = flight.gate ? ` [G:${flight.gate}]` : '';
     
@@ -176,12 +177,21 @@ const FlightCard: React.FC<FlightCardProps> = ({
   const isSpecial = flight.departureMode === 'F';
 
   const cardStyle = useMemo(() => {
+    const isNoAc = !flight.aircraftType || flight.aircraftType.trim() === '' || flight.isTransparent || flight.aircraftType.toUpperCase() === 'NAN';
     const isWideBody = WIDE_BODY_AIRCRAFT.has(flight.aircraftType?.toUpperCase().trim());
     const isUnregistered = !flight.regNo || flight.regNo.trim() === '' || flight.regNo.toUpperCase().startsWith('ER') || flight.regNo.toUpperCase() === 'DUMMY' || flight.regNo.toUpperCase() === 'NONE';
 
     let style: React.CSSProperties;
 
-    if (isUnregistered) {
+    if (isNoAc) {
+      // Uçak tipi henüz belirlenmemiş: Şeffaf zemin ve kesikli çerçeve
+      style = {
+        backgroundColor: 'rgba(255, 255, 255, 0.07)',
+        borderColor: 'rgba(255, 255, 255, 0.35)',
+        borderStyle: 'dashed',
+        color: '#cbd5e1',
+      };
+    } else if (isUnregistered) {
       // Tescili tanımlanmamış uçuşlar: Beyaz / Açık Gri tonlarında
       style = {
         backgroundColor: '#b0bec5',
@@ -209,7 +219,7 @@ const FlightCard: React.FC<FlightCardProps> = ({
     }
 
     return style;
-  }, [flight.aircraftType, flight.regNo, isOverridden]);
+  }, [flight.aircraftType, flight.regNo, flight.isTransparent, isOverridden]);
 
 
   const handleClick = (e: React.MouseEvent) => {

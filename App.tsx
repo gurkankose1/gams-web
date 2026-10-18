@@ -18,6 +18,7 @@ import ChangePasswordModal from './auth/ChangePasswordModal.tsx';
 import CustomDragLayer from './components/CustomDragLayer.tsx';
 import HeaderRevenueSummary from './components/HeaderRevenueSummary.tsx';
 import BottomRevenueSummaryBar from './components/BottomRevenueSummaryBar.tsx';
+import { runAiBridgeAllocation, calculateBridgeUtilization } from './services/ai-allocator.ts';
 import { database } from './firebase.ts';
 import { ref, onValue, set, update, remove } from 'firebase/database';
 import { User } from 'firebase/auth';
@@ -118,8 +119,33 @@ const parseTurnaroundDataWithMapping = (rawData: any[], mapping: Mapping, startD
             return [];
         }
 
-        let rawArrDate = combineDateAndTime(null, row[m.arrDateTime], startDate);
-        let rawDepDate = combineDateAndTime(null, row[m.depDateTime], startDate);
+        // Time Fallback Hierarchy:
+        // Priority 1: AIBT - AOBT (On Block - Off Block)
+        // Priority 2: ALDT - ATOT (ATA - ATD)
+        // Priority 3: ETA - ETD
+        // Priority 4: STA - STD
+        // Priority 5: m.arrDateTime / m.depDateTime from mapping
+        const onBlock = combineDateAndTime(null, row['On Block'] || row['AIBT'], startDate);
+        const offBlock = combineDateAndTime(null, row['Off Block'] || row['AOBT'], startDate);
+
+        const ata = combineDateAndTime(null, row['ATA'] || row['ALDT'], startDate);
+        const atd = combineDateAndTime(null, row['ATD'] || row['ATOT'], startDate);
+
+        const eta = combineDateAndTime(null, row['ETA'], startDate);
+        const etd = combineDateAndTime(null, row['ETD'], startDate);
+
+        const sta = combineDateAndTime(null, row['STA'], startDate);
+        const std = combineDateAndTime(null, row['STD'], startDate);
+
+        const mappedArr = m.arrDateTime ? combineDateAndTime(null, row[m.arrDateTime], startDate) : null;
+        const mappedDep = m.depDateTime ? combineDateAndTime(null, row[m.depDateTime], startDate) : null;
+
+        let rawArrDate = onBlock || ata || eta || sta || mappedArr;
+        let rawDepDate = offBlock || atd || etd || std || mappedDep;
+
+        let timeSource: 'BLOCK' | 'ACTUAL' | 'SCHEDULED' = 'SCHEDULED';
+        if (onBlock && offBlock) timeSource = 'BLOCK';
+        else if (ata && atd) timeSource = 'ACTUAL';
 
         // Filter out 1899 zero-dates
         if (rawArrDate && rawArrDate.getFullYear() < 1970) rawArrDate = null;
@@ -154,6 +180,10 @@ const parseTurnaroundDataWithMapping = (rawData: any[], mapping: Mapping, startD
         const regNo = rawRegNo && rawRegNo !== 'NULL' && rawRegNo !== 'NONE' ? rawRegNo : undefined;
         const airlineCode = (arrivalFlightNumber || departureFlightNumber).substring(0, 2);
 
+        const rawAcCategory = String(row['A/C C'] || row['A/C C_1'] || row['acCategory'] || '').toUpperCase().trim();
+        const rawTrafficMode = String(row['Mod'] || row['Mod_1'] || row['Mod.1'] || row['trafficMode'] || '').toUpperCase().trim();
+        const isNoAc = !rawAcCategory || rawAcCategory === 'NAN' || rawAcCategory === 'NULL' || (!aircraftType && !rawAcCategory) || aircraftType.toUpperCase() === 'NAN';
+
         const mtowKey = mapping.mtow;
         const rawMtowVal = mtowKey ? row[mtowKey] : (row['MTOW'] || row['mtow'] || row['Max MTOW'] || row['MTOW (Tons)']);
         let mtowVal: number | undefined = undefined;
@@ -164,8 +194,8 @@ const parseTurnaroundDataWithMapping = (rawData: any[], mapping: Mapping, startD
             }
         }
 
-        const arrivalIsDomestic = m.arrMode ? String(row[m.arrMode] ?? '').toUpperCase().startsWith('D') : TURKISH_DOMESTIC_AIRPORTS.has(origin);
-        const departureIsDomestic = m.depMode ? String(row[m.depMode] ?? '').toUpperCase().startsWith('D') : TURKISH_DOMESTIC_AIRPORTS.has(destination);
+        const isArrDom = String(row['I/D'] ?? '').toUpperCase().trim() === 'D' || (m.arrMode ? String(row[m.arrMode] ?? '').toUpperCase().startsWith('D') : TURKISH_DOMESTIC_AIRPORTS.has(origin));
+        const isDepDom = String(row['I/D_1'] ?? row['I/D.1'] ?? '').toUpperCase().trim() === 'D' || (m.depMode ? String(row[m.depMode] ?? '').toUpperCase().startsWith('D') : TURKISH_DOMESTIC_AIRPORTS.has(destination));
         const departureMode = m.depMode ? String(row[m.depMode] ?? '').toUpperCase().trim() : undefined;
         
         const arrGateStr = m.arrGate ? String(row[m.arrGate] ?? '').toUpperCase().trim() || null : null;
@@ -198,10 +228,14 @@ const parseTurnaroundDataWithMapping = (rawData: any[], mapping: Mapping, startD
                 destination,
                 scheduledArrival: arrival,
                 scheduledDeparture: departure,
-                isDomestic: arrivalIsDomestic && departureIsDomestic,
-                arrivalIsDomestic,
-                departureIsDomestic,
-                departureMode,
+                isDomestic: isArrDom && isDepDom,
+                arrivalIsDomestic: isArrDom,
+                departureIsDomestic: isDepDom,
+                departureMode: departureMode || rawTrafficMode,
+                trafficMode: rawTrafficMode,
+                acCategory: isNoAc ? '' : rawAcCategory,
+                isTransparent: isNoAc,
+                timeSource,
                 gate: gate,
             };
 
@@ -213,8 +247,8 @@ const parseTurnaroundDataWithMapping = (rawData: any[], mapping: Mapping, startD
                     departureFlightNumber: undefined,
                     destination: undefined,
                     scheduledDeparture: new Date(arrival.getTime() + SINGLE_LEG_DURATION_MS),
-                    isDomestic: arrivalIsDomestic,
-                    parkingPosition: arrPos,
+                    isDomestic: isArrDom,
+                    parkingPosition: isNoAc ? null : arrPos,
                 };
                 const departureLeg: Flight = {
                     ...baseFlightData,
@@ -223,8 +257,8 @@ const parseTurnaroundDataWithMapping = (rawData: any[], mapping: Mapping, startD
                     arrivalFlightNumber: undefined,
                     origin: undefined,
                     scheduledArrival: new Date(departure.getTime() - SINGLE_LEG_DURATION_MS),
-                    isDomestic: departureIsDomestic,
-                    parkingPosition: depPos,
+                    isDomestic: isDepDom,
+                    parkingPosition: isNoAc ? null : depPos,
                 };
                 return [arrivalLeg, departureLeg];
             } else {
@@ -232,7 +266,7 @@ const parseTurnaroundDataWithMapping = (rawData: any[], mapping: Mapping, startD
                     ...baseFlightData,
                     id: `${arrivalFlightNumber || departureFlightNumber}-${arrival.toISOString()}-${i}`,
                     type: 'turnaround',
-                    parkingPosition: arrPos || depPos || generalPos,
+                    parkingPosition: isNoAc ? null : (arrPos || depPos || generalPos),
                 };
                 return [turnaroundFlight];
             }
@@ -253,12 +287,16 @@ const parseTurnaroundDataWithMapping = (rawData: any[], mapping: Mapping, startD
                 regNo,
                 scheduledArrival: arrival,
                 scheduledDeparture: new Date(arrival.getTime() + SINGLE_LEG_DURATION_MS),
-                parkingPosition: arrPos || generalPos,
+                parkingPosition: isNoAc ? null : (arrPos || generalPos),
                 gate,
-                isDomestic: arrivalIsDomestic,
-                arrivalIsDomestic,
+                isDomestic: isArrDom,
+                arrivalIsDomestic: isArrDom,
                 departureIsDomestic: false,
-                departureMode,
+                departureMode: departureMode || rawTrafficMode,
+                trafficMode: rawTrafficMode,
+                acCategory: isNoAc ? '' : rawAcCategory,
+                isTransparent: isNoAc,
+                timeSource,
                 raw_data: row,
                 history: []
             };
@@ -280,12 +318,16 @@ const parseTurnaroundDataWithMapping = (rawData: any[], mapping: Mapping, startD
                 regNo,
                 scheduledArrival: new Date(departure.getTime() - SINGLE_LEG_DURATION_MS),
                 scheduledDeparture: departure,
-                parkingPosition: depPos || generalPos,
+                parkingPosition: isNoAc ? null : (depPos || generalPos),
                 gate,
-                isDomestic: departureIsDomestic,
+                isDomestic: isDepDom,
                 arrivalIsDomestic: false,
-                departureIsDomestic,
-                departureMode,
+                departureIsDomestic: isDepDom,
+                departureMode: departureMode || rawTrafficMode,
+                trafficMode: rawTrafficMode,
+                acCategory: isNoAc ? '' : rawAcCategory,
+                isTransparent: isNoAc,
+                timeSource,
                 raw_data: row,
                 history: []
             };
@@ -694,6 +736,92 @@ const App: React.FC<{ user: User }> = ({ user }) => {
 
         return () => unsubscribe();
     }, []);
+
+    const [isAiAllocating, setIsAiAllocating] = useState(false);
+    const [allocationMessage, setAllocationMessage] = useState<string | null>(null);
+
+    const bridgeStats = useMemo(() => {
+        return calculateBridgeUtilization(flights);
+    }, [flights]);
+
+    const handleUnallocateAll = useCallback(() => {
+        if (flights.length === 0) return;
+        const confirmed = window.confirm("Tüm uçuşların stant atamaları sıfırlanıp bekleme havuzuna (Flight Pool) aktarılacak. Onaylıyor musunuz?");
+        if (!confirmed) return;
+
+        const newHistoryEntry: FlightHistoryEntry = {
+            user: currentUser.username,
+            action: "Tüm uçuşlar havuza çekildi (Unallocated All).",
+            timestamp: new Date()
+        };
+
+        const unallocatedFlights = flights.map(f => ({
+            ...f,
+            parkingPosition: null,
+            history: [...(f.history || []), newHistoryEntry]
+        }));
+
+        updateDatabase({ flights: unallocatedFlights, maintenanceBlocks, gates: gateList });
+        setSelectedFlightIds(new Set());
+        setPoolCollapsed(false);
+        setAllocationMessage("Tüm uçuşlar başarıyla bekleme havuzuna aktarıldı.");
+        setTimeout(() => setAllocationMessage(null), 5000);
+    }, [flights, currentUser.username, maintenanceBlocks, gateList]);
+
+    const handleRunAiAllocation = useCallback(() => {
+        if (flights.length === 0) return;
+        setIsAiAllocating(true);
+
+        setTimeout(() => {
+            try {
+                const { flights: newFlights, stats } = runAiBridgeAllocation(flights);
+
+                const newHistoryEntry: FlightHistoryEntry = {
+                    user: currentUser.username,
+                    action: `AI Senaryo 1 Planlama yapıldı (Köprü Oranı: %${stats.bridgeRate.toFixed(1)}).`,
+                    timestamp: new Date()
+                };
+
+                const flightsWithHistory = newFlights.map(f => ({
+                    ...f,
+                    history: [...(f.history || []), newHistoryEntry]
+                }));
+
+                updateDatabase({ flights: flightsWithHistory, maintenanceBlocks, gates: gateList });
+                setSelectedFlightIds(new Set());
+
+                // Auto expand concourses that have newly assigned flights
+                const concoursesToExpand = new Set<string>();
+                flightsWithHistory.forEach(f => {
+                    if (f.parkingPosition) {
+                        Object.entries(CONCOURSE_LAYOUT).forEach(([name, posList]) => {
+                            if (posList.includes(f.parkingPosition!)) {
+                                concoursesToExpand.add(name);
+                            }
+                        });
+                    }
+                });
+
+                if (concoursesToExpand.size > 0) {
+                    setCollapsedConcourses(prev => {
+                        const next = { ...prev };
+                        concoursesToExpand.forEach(name => {
+                            next[name] = false;
+                        });
+                        return next;
+                    });
+                }
+
+                setAllocationMessage(`🤖 AI Senaryo 1 Planlama Tamamlandı: %${stats.bridgeRate.toFixed(1)} Köprü Oranı (${stats.bridgeAssignedCount} / ${stats.eligibleFlightsCount} Yolcu Uçuşu Körükte)`);
+                setTimeout(() => setAllocationMessage(null), 8000);
+            } catch (err) {
+                console.error("AI allocation error:", err);
+                alert("AI planlama sırasında bir hata oluştu.");
+            } finally {
+                setIsAiAllocating(false);
+            }
+        }, 100);
+    }, [flights, currentUser.username, maintenanceBlocks, gateList]);
     
     // Search and scroll to flight
     useEffect(() => {
@@ -1425,6 +1553,15 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                         {/* Financial Revenue Summary */}
                         <HeaderRevenueSummary flights={flights} />
 
+                        {/* Bridge Utilization Rate KPI Badge */}
+                        {bridgeStats.eligibleFlightsCount > 0 && (
+                            <div className="bg-gradient-to-r from-indigo-950/90 to-purple-950/90 border border-indigo-400/50 rounded-lg px-2.5 py-1 flex items-center space-x-1.5 shadow select-none" title="Sadece köprüye atanabilir yolcu uçuşları üzerinden hesaplanan köprü kullanım oranı">
+                                <span className="text-indigo-300 font-bold">🌉 Köprü Oranı:</span>
+                                <span className="text-emerald-300 font-black text-sm">%{bridgeStats.bridgeRate.toFixed(1)}</span>
+                                <span className="text-gray-400 text-[10px]">({bridgeStats.bridgeAssignedCount}/{bridgeStats.eligibleFlightsCount} Yolcu)</span>
+                            </div>
+                        )}
+
                         <div className="h-6 w-px bg-gray-700"></div>
 
                         {/* Data Management Group */}
@@ -1436,6 +1573,36 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                                 Excel Yükle
                             </label>
                             <input id="file-upload" type="file" className="hidden" onChange={onFileUpload} accept=".xlsx, .xls, .csv" />
+
+                            {/* 🟠 TÜMÜNÜ HAVUZA ÇEK (UNALLOCATE ALL) */}
+                            <button 
+                                onClick={handleUnallocateAll}
+                                disabled={flights.length === 0}
+                                className="flex items-center gap-1.5 px-3 py-1.5 font-semibold rounded-lg bg-amber-600/90 hover:bg-amber-500 text-white shadow-sm transition duration-200 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer select-none border border-amber-500/50"
+                                title="Tüm uçuşların stant atamalarını kaldırıp bekleme havuzuna (Flight Pool) aktar"
+                            >
+                                <svg className="w-3.5 h-3.5 text-amber-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
+                                Tümünü Havuza Çek
+                            </button>
+
+                            {/* 🟣 AI PLANLA: SENARYO 1 (MAKSİMUM KÖPRÜ) */}
+                            <button 
+                                onClick={handleRunAiAllocation}
+                                disabled={flights.length === 0 || isAiAllocating}
+                                className={`flex items-center gap-1.5 px-3 py-1.5 font-semibold rounded-lg text-white shadow-md transition duration-200 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer select-none border border-purple-400/40 ${
+                                    isAiAllocating 
+                                        ? 'bg-purple-800 animate-pulse' 
+                                        : 'bg-gradient-to-r from-purple-600 via-indigo-600 to-purple-600 hover:from-purple-500 hover:to-indigo-500 shadow-purple-600/30'
+                                }`}
+                                title="Senaryo 1: Maksimum köprü doluluğu odaklı otomatik yapay zeka planlaması"
+                            >
+                                <svg className={`w-3.5 h-3.5 text-purple-200 ${isAiAllocating ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                                </svg>
+                                {isAiAllocating ? 'AI Planlıyor...' : 'AI Planla: Senaryo 1 (Maksimum Köprü)'}
+                            </button>
 
                             <button 
                                 onClick={handleExportGateExcel} 
@@ -1627,6 +1794,19 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                     </div>
                 </div>
             </header>
+
+            {allocationMessage && (
+                <div className="bg-gradient-to-r from-purple-950 via-indigo-950 to-purple-950 text-white px-4 py-2 border-b border-purple-500/50 flex items-center justify-between text-xs font-semibold shadow-lg z-50 animate-fadeIn">
+                    <div className="flex items-center gap-2.5">
+                        <span className="flex h-2.5 w-2.5 relative">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                        </span>
+                        <span className="text-gray-100">{allocationMessage}</span>
+                    </div>
+                    <button onClick={() => setAllocationMessage(null)} className="text-gray-400 hover:text-white font-bold ml-4 text-sm leading-none">✕</button>
+                </div>
+            )}
 
             <ExcelImportReportModal isOpen={isReportModalOpen} onClose={() => setReportModalOpen(false)} report={importReport} />
             <ExcelErrorModal isOpen={isExcelErrorModalOpen} onClose={() => setExcelErrorModalOpen(false)} errors={excelErrors} />
