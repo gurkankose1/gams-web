@@ -152,10 +152,19 @@ const parseTurnaroundDataWithMapping = (rawData: any[], mapping: Mapping, startD
         if (rawArrDate && rawArrDate.getFullYear() < 1970) rawArrDate = null;
         if (rawDepDate && rawDepDate.getFullYear() < 1970) rawDepDate = null;
 
-        // Check for DX / Cancelled Flight status
-        const statusKey = mapping.status;
-        const rawStatus = String(statusKey ? row[statusKey] : (row['Status'] || row['Dep Status'] || row['Status_1'] || row['Remark'] || '')).toUpperCase().trim();
-        if (rawStatus === 'DX' || rawStatus.startsWith('DX') || rawStatus.includes('CANCEL') || rawStatus.includes('İPTAL') || rawStatus.includes('IPTAL')) {
+        // Check for DX / Cancelled Flight status across BOTH Arrival and Departure status/remark columns
+        const isCancelledStr = (val: any) => {
+            if (val === null || val === undefined || val === '') return false;
+            const s = String(val).toUpperCase().trim();
+            return s === 'DX' || s.startsWith('DX') || s.includes('CANCEL') || s.includes('İPTAL') || s.includes('IPTAL');
+        };
+
+        const statusMapped = mapping.status ? row[mapping.status] : null;
+        const statusArr = row['Status'] || row['Arr Status'] || row['ArrStatus'];
+        const statusDep = row['Dep Status'] || row['DepStatus'] || row['Status_1'] || row['Status.1'];
+        const statusRemark = row[' Remark'] || row['Remark'] || row['Aksaklik'] || row['Stand_Change_Reason'];
+
+        if (isCancelledStr(statusMapped) || isCancelledStr(statusArr) || isCancelledStr(statusDep) || isCancelledStr(statusRemark)) {
             errors.push({ rowIndex: i + 2, reason: "İptal Uçuş (DX) - Planlamaya yansıtılmadı.", rowData: row });
             return [];
         }
@@ -174,6 +183,9 @@ const parseTurnaroundDataWithMapping = (rawData: any[], mapping: Mapping, startD
 
         const arrivalFlightNumber = String(row[m.arrNum] || '').trim();
         const departureFlightNumber = String(row[m.depNum] || '').trim();
+        if (!arrivalFlightNumber && !departureFlightNumber) {
+            return []; // Skip ghost/empty rows
+        }
         const origin = String(row[m.origin] || '').trim();
         const destination = String(row[m.dest] || '').trim();
         const aircraftType = String(row[m.ac] || '').trim();
