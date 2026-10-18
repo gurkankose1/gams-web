@@ -5,6 +5,10 @@ import {
     isPropellerAircraft, 
     getAircraftCategory, 
     isContactStand,
+    isStandWidebodyCompatible,
+    isStandCatFCompatible,
+    AMS_WIDEBODY_PERMITTED_STANDS,
+    AMS_CAT_F_HEAVY_STANDS,
     CAT_F_HEAVY_STANDS 
 } from './ams-rules.ts';
 
@@ -287,26 +291,8 @@ function buildStandTopology(): Map<string, StandSchedule> {
         const isMarsCenter = marsSubsByCenter.has(stand);
         const subs = isMarsCenter ? marsSubsByCenter.get(stand) : undefined;
 
-        // Widebody compatibility:
-        // - MARS Center stands: Widebody compatible
-        // - Concourse D: D6-D17 & single wide contact stands: Widebody compatible
-        // - Concourse C (C1-C4), Concourse E (E1-E4), and D1-D5: Strictly Narrowbody (Cat C) only! ZERO widebody allowed!
-        // - MARS sub-stands (L/R) & B2, F2: Strictly Narrowbody (Cat C) only!
-        const isContact = isContactStand(stand);
-        const isNarrowOnlyContact = concourse === 'Concourse C' || concourse === 'Concourse E' || stand === 'B2' || stand === 'F2' || ['D1', 'D2', 'D3', 'D4', 'D5'].includes(stand);
-        let isWideCompatible = false;
-        if (isMarsCenter) {
-            isWideCompatible = true;
-        } else if (!isMarsSub && !isNarrowOnlyContact) {
-            if (concourse === 'Concourse D') {
-                isWideCompatible = !['D1', 'D2', 'D3', 'D4', 'D5'].includes(stand);
-            } else if (stand === 'A9' || stand === 'B4' || (stand.startsWith('B') && parseInt(stand.slice(1)) >= 13 && parseInt(stand.slice(1)) <= 17) || (stand.startsWith('F') && parseInt(stand.slice(1)) >= 14 && parseInt(stand.slice(1)) <= 19)) {
-                isWideCompatible = true;
-            } else if (!isContact) {
-                // Remote open stands: center stands or single positions
-                isWideCompatible = true;
-            }
-        }
+        // Widebody compatibility strictly defined by official AMS Stand Allocation Permissions (stand_allocation_permission.pdf):
+        const isWideCompatible = isStandWidebodyCompatible(stand);
 
         topology.set(stand, {
             stand,
@@ -331,17 +317,14 @@ function canFitOnStand(
     topology: Map<string, StandSchedule>,
     isHeavy: boolean = false
 ): boolean {
-    // 1. Physical compatibility
+    // 1. Physical & AMS Rule compatibility
     if (isWide && schedule.isMarsSub) return false;
     if (isWide && !schedule.isWideCompatible) return false;
     // Strict MARS Rule: Narrowbody (Cat A, B, C) cannot park on MARS Center stands!
     // It must park on L or R sub-stands (e.g. A11L/A11R), never on Center (A11).
     if (!isWide && schedule.isMarsCenter) return false;
-    if (isHeavy) {
-        const baseStand = schedule.stand.replace(/[LR]$/, '');
-        if (!CAT_F_HEAVY_STANDS.has(baseStand) && !CAT_F_HEAVY_STANDS.has(schedule.stand)) {
-            return false;
-        }
+    if (isHeavy && !isStandCatFCompatible(schedule.stand)) {
+        return false;
     }
 
     // 2. Direct overlap on this stand (buffer = 0)
@@ -796,13 +779,14 @@ export function runAiBridgeAllocation(
         const arrMs = flight.scheduledArrival.getTime();
         const depMs = flight.scheduledDeparture.getTime();
         const isWide = isFlightWide(flight);
+        const isHeavy = isFlightHeavy(flight);
 
         let placed = false;
         for (const apronName of openAprons) {
             const stands = CONCOURSE_LAYOUT[apronName] || [];
             for (const s of stands) {
                 const sched = topology.get(s);
-                if (sched && canFitOnStand(sched, arrMs, depMs, isWide, topology)) {
+                if (sched && canFitOnStand(sched, arrMs, depMs, isWide, topology, isHeavy)) {
                     placeOnStand(sched, arrMs, depMs, flight.id);
                     flightUpdates.set(flight.id, sched.stand);
                     placed = true;
@@ -1257,68 +1241,66 @@ export function runAiBridgeAllocation(
         };
     });
 
-    // Safety Net: Guarantee 0 rule violations across all contact assigned flights
+    // Safety Net: Guarantee 0 rule violations across ALL assigned flights (Contact & Remote)
     updatedFlights.forEach(f => {
         if (!f.parkingPosition) return;
         const pos = f.parkingPosition;
-        if (!isContactStand(pos)) return;
 
         const isWide = isFlightWide(f);
         const isHeavy = isFlightHeavy(f);
         const concourse = Object.keys(CONCOURSE_LAYOUT).find(c => CONCOURSE_LAYOUT[c].includes(pos)) || '';
-        const isNarrowOnly = concourse === 'Concourse C' || concourse === 'Concourse E' || pos === 'B2' || pos === 'F2' || ['D1', 'D2', 'D3', 'D4', 'D5'].includes(pos) || pos.endsWith('L') || pos.endsWith('R');
 
         let needsDemotion = false;
 
-        // Rule 1: No widebody on narrow-only contact stand
-        if (isWide && isNarrowOnly) {
-            console.warn(`[SAFETY NET] Widebody violation prevented on ${pos} for flight ${f.id}. Demoting to remote.`);
+        // Rule 1: AMS Widebody Stand Permission Check (stand_allocation_permission.pdf)
+        // No widebody on any narrowbody-only stand (e.g. 100-132, 200-214, 300-312, 601-604, C1-C4, E1-E4, D1-D5, L/R sub-stands)
+        if (isWide && !isStandWidebodyCompatible(pos)) {
+            console.warn(`[SAFETY NET] Widebody violation prevented on ${pos} for flight ${f.id}. Demoting/Relocating.`);
             needsDemotion = true;
         }
 
-        // Rule 1.5: Heavy Cat F violation prevented on non-heavy stands
-        if (isHeavy) {
-            const basePos = pos.replace(/[LR]$/, '');
-            if (!CAT_F_HEAVY_STANDS.has(basePos) && !CAT_F_HEAVY_STANDS.has(pos)) {
-                console.warn(`[SAFETY NET] Heavy Cat F violation prevented on ${pos} for flight ${f.id}. Demoting to remote.`);
-                needsDemotion = true;
-            }
+        // Rule 1.5: Heavy Cat F violation prevented on non-heavy stands (AMS Rule)
+        if (isHeavy && !isStandCatFCompatible(pos)) {
+            console.warn(`[SAFETY NET] Heavy Cat F violation prevented on ${pos} for flight ${f.id}. Demoting/Relocating.`);
+            needsDemotion = true;
         }
 
         // Rule 1.8: Strict MARS Rule: No narrowbody on MARS Center stand
         if (!isWide) {
             const sched = topology.get(pos);
             if (sched && sched.isMarsCenter) {
-                console.warn(`[SAFETY NET] Narrowbody on MARS center stand ${pos} prevented for flight ${f.id}. Demoting to remote.`);
+                console.warn(`[SAFETY NET] Narrowbody on MARS center stand ${pos} prevented for flight ${f.id}. Demoting/Relocating.`);
                 needsDemotion = true;
             }
         }
 
-        // Rule 2: Pier G vs International
-        const isArrDom = f.type === 'turnaround' ? (f.arrivalIsDomestic ?? f.isDomestic) : f.isDomestic;
-        const isDepDom = f.type === 'turnaround' ? (f.departureIsDomestic ?? f.isDomestic) : f.isDomestic;
+        // Rule 2: Pier G vs International (Contact stands only)
+        if (isContactStand(pos)) {
+            const isArrDom = f.type === 'turnaround' ? (f.arrivalIsDomestic ?? f.isDomestic) : f.isDomestic;
+            const isDepDom = f.type === 'turnaround' ? (f.departureIsDomestic ?? f.isDomestic) : f.isDomestic;
 
-        // Saf Dış Hat (Dış - Dış) asla Concourse G'ye verilemez
-        if (concourse === 'Concourse G' && (!isArrDom && !isDepDom)) {
-            console.warn(`[SAFETY NET] Saf Dış hat flight on Concourse G prevented (${pos}, ${f.id}). Demoting to remote.`);
-            needsDemotion = true;
-        } else if (concourse !== 'Concourse G' && concourse.startsWith('Concourse') && (isArrDom && isDepDom)) {
-            // Saf İç Hat (İç - İç) asla Concourse A-F'ye verilemez
-            console.warn(`[SAFETY NET] Saf İç hat flight on International Concourse prevented (${pos}, ${f.id}). Demoting to remote.`);
-            needsDemotion = true;
+            // Saf Dış Hat (Dış - Dış) asla Concourse G'ye verilemez
+            if (concourse === 'Concourse G' && (!isArrDom && !isDepDom)) {
+                console.warn(`[SAFETY NET] Saf Dış hat flight on Concourse G prevented (${pos}, ${f.id}). Demoting.`);
+                needsDemotion = true;
+            } else if (concourse !== 'Concourse G' && concourse.startsWith('Concourse') && (isArrDom && isDepDom)) {
+                // Saf İç Hat (İç - İç) asla Concourse A-F'ye verilemez
+                console.warn(`[SAFETY NET] Saf İç hat flight on International Concourse prevented (${pos}, ${f.id}). Demoting.`);
+                needsDemotion = true;
+            }
         }
 
         if (needsDemotion) {
             f.parkingPosition = null;
             flightUpdates.delete(f.id);
 
-            // Re-allocate to open remote apron
+            // Re-allocate to a compatible stand
             const arrMs = f.scheduledArrival.getTime();
             const depMs = f.scheduledDeparture.getTime();
-            for (const ap of ['APRON 1', 'APRON 2', 'APRON 3', 'APRON 4']) {
+            for (const ap of ['APRON 1', 'APRON 2', 'APRON 3', 'APRON 4', 'APRON 5']) {
                 for (const s of (CONCOURSE_LAYOUT[ap] || [])) {
                     const sched = topology.get(s);
-                    if (sched && canFitOnStand(sched, arrMs, depMs, isWide, topology)) {
+                    if (sched && canFitOnStand(sched, arrMs, depMs, isWide, topology, isHeavy)) {
                         placeOnStand(sched, arrMs, depMs, f.id);
                         f.parkingPosition = s;
                         flightUpdates.set(f.id, s);

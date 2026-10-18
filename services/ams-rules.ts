@@ -158,16 +158,61 @@ export function isInternationalConcourse(pos: string): boolean {
     return ['Concourse A', 'Concourse B', 'Concourse C', 'Concourse D', 'Concourse E', 'Concourse F'].includes(concourse);
 }
 
-export const CAT_F_HEAVY_STANDS = new Set([
+// ----------------------------------------------------------------------
+// 4. Official AMS Stand Allocation Permissions (stand_allocation_permission.pdf)
+// ----------------------------------------------------------------------
+
+// Category D, E, F (Widebody) permitted stands (Official IGA / IST AMS Rulebook)
+export const AMS_WIDEBODY_PERMITTED_STANDS = new Set([
+    // APRON 1 Widebody Centers (133 - 148) (Note: 100-132 and 149 are strictly Narrowbody only)
+    '133', '134', '135', '136', '137', '138', '139', '140', '141', '142', '143', '144', '145', '146', '147', '148',
+    // APRON 2 Widebody Stands (215 - 226, D19, D20) (Note: 200-214 are strictly Narrowbody only)
+    '215', '216', '217', '218', '219', '220', '221', '222', '223', '224', '225', '226', 'D19', 'D20',
+    // APRON 3 Widebody Stands (313 - 315) (Note: 300-312 are strictly Narrowbody only)
+    '313', '314', '315',
+    // VIP APRON Widebody Stands (316 - 319)
+    '316', '317', '318', '319',
+    // APRON 4 Widebody Stands (401 - 409)
+    '401', '402', '403', '404', '405', '406', '407', '408', '409',
+    // APRON 5 Widebody Stands (501, 502, 506 - 509)
+    '501', '502', '506', '507', '508', '509',
+    // Concourse A Widebody Stands
+    'A2', 'A3', 'A5', 'A6', 'A7', 'A8', 'A9', 'A10', 'A11',
+    // Concourse B Widebody Stands
+    'B1', 'B3', 'B4', 'B5', 'B6', 'B7', 'B9', 'B12', 'B13', 'B14', 'B15', 'B16', 'B17', 'B18',
+    // Concourse D Widebody Stands (D6 - D17) (Note: D1-D5 are strictly Narrowbody only)
+    'D6', 'D7', 'D8', 'D9', 'D10', 'D11', 'D12', 'D13', 'D14', 'D15', 'D16', 'D17',
+    // Concourse F Widebody Stands
+    'F1', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F13', 'F14', 'F15', 'F16', 'F17', 'F18', 'F19',
+    // Concourse G Widebody Stands
+    'G2', 'G4', 'G5', 'G6', 'G7', 'G8', 'G9', 'G10', 'G11',
+    // CARGO APRON Widebody Stands
+    'K1', 'K2', 'K3', 'K4', 'K5', 'K6', 'K7', 'K8', 'K9', 'K10', 'K11', 'K12', 'K13', 'K14', 'K15', 'K16', 'K17', 'K18', 'K19', 'K20', 'K21', 'K25', 'K26', 'K27', 'K50', 'K51', 'K52', 'K53', 'K54', 'K55', 'K56', 'K57',
+    // DEICING APRON Widebody Stands
+    'H10', 'H11', 'H12', 'H13', 'H14', 'H20', 'H21', 'H22', 'H23', 'H24', 'H25', 'H30', 'H31', 'H32', 'H33', 'H34', 'H35', 'H36', 'H40', 'H41', 'H42', 'H43', 'H44', 'H45', 'H46', 'H50', 'H51',
+    // MRO & Other Aprons
+    'M10', 'M11', 'M12', 'M13', 'M14', 'M15', 'M16', 'M17', 'M18',
+    'SA1', 'SA2', 'SA3', 'CCP', 'DKE', 'V3', 'V4',
+    // THY HANGAR Widebody Stands
+    'THY1', 'THY2', 'THY3', 'THY5', 'THY8', 'THY10', 'THY11', 'THY12', 'THY18', 'THY19', 'THY20'
+]);
+
+// Official AMS Category F (Heavy / A380, B748, AN124) Permitted Stands
+export const AMS_CAT_F_HEAVY_STANDS = new Set([
     'A2', // Primary Contact Gate for A380 / Super Heavy (EK123/EK124)
+    'A3', 'A5', 'A6', 'A7', 'B1', 'B3', 'B5', 'B7', 'B9', 'B12',
+    'F5', 'F7', 'F9', 'F13',
     '215', '216', '217', '218', '219',
     '313', '314', '315', '316', '317', '318', '319',
-    'H10', 'H11', 'H12', 'H13', 'H14',
-    'H20', 'H21', 'H22', 'H23', 'H24', 'H25',
-    'H30', 'H31', 'H32', 'H33', 'H34', 'H35', 'H36',
-    'H40', 'H41', 'H42', 'H43', 'H44', 'H45', 'H46',
-    'H50', 'H51', 'K53', 'MTA'
+    '405',
+    'H10', 'H11', 'H12', 'H13', 'H14', 'H20', 'H21', 'H22', 'H23', 'H24', 'H25',
+    'H30', 'H31', 'H32', 'H33', 'H34', 'H35', 'H36', 'H40', 'H41', 'H42', 'H43', 'H44', 'H45', 'H46', 'H50', 'H51',
+    'K53', 'M14', 'SA1', 'CCP',
+    'THY1', 'THY2', 'THY8', 'THY10', 'THY11', 'THY12', 'THY20'
 ]);
+
+// Backwards compatibility alias
+export const CAT_F_HEAVY_STANDS = AMS_CAT_F_HEAVY_STANDS;
 
 export const NARROW_ONLY_CONTACT_STANDS = new Set([
     'C1', 'C2', 'C3', 'C4',
@@ -175,6 +220,19 @@ export const NARROW_ONLY_CONTACT_STANDS = new Set([
     'D1', 'D2', 'D3', 'D4', 'D5',
     'B2', 'F2'
 ]);
+
+export function isStandWidebodyCompatible(stand: string): boolean {
+    if (!stand) return false;
+    // Sub-stands (ending with L or R) are strictly Category C (Narrowbody)
+    if (stand.endsWith('L') || stand.endsWith('R')) return false;
+    return AMS_WIDEBODY_PERMITTED_STANDS.has(stand);
+}
+
+export function isStandCatFCompatible(stand: string): boolean {
+    if (!stand) return false;
+    if (stand.endsWith('L') || stand.endsWith('R')) return false;
+    return AMS_CAT_F_HEAVY_STANDS.has(stand);
+}
 
 // ----------------------------------------------------------------------
 // 5. Master Validation Engine
@@ -210,15 +268,13 @@ export function validateFlightPlacement(
     const flightArr = flight.scheduledArrival.getTime();
     const flightDep = flight.scheduledDeparture.getTime();
 
-    // --- RULE A: MARS / Widebody & Narrowbody Stand Restriction (PDF 3) ---
-    const concourse = Object.keys(CONCOURSE_LAYOUT).find(c => CONCOURSE_LAYOUT[c].includes(targetPosition));
-    const isNarrowOnlyContact = concourse === 'Concourse C' || concourse === 'Concourse E' || NARROW_ONLY_CONTACT_STANDS.has(targetPosition);
+    // --- RULE A: AMS Aircraft Category & Stand Allocation Permissions (stand_allocation_permission.pdf) ---
     const mars = getMarsRelatedPositions(targetPosition);
     if (isWide) {
         if (mars.isSubStand) {
             reasons.push(`Geniş gövdeli uçak (${flight.aircraftType}) L/R alt pozisyona (${targetPosition}) park edemez. Center pozisyona (${mars.center}) verilmeli.`);
-        } else if (isNarrowOnlyContact) {
-            reasons.push(`Geniş gövdeli uçak (${flight.aircraftType}) dar gövde körük pozisyonuna (${targetPosition}) park edemez. C, E ve D1-D5 iskeleleri yalnızca dar gövde (Cat C) içindir.`);
+        } else if (!isStandWidebodyCompatible(targetPosition)) {
+            reasons.push(`Geniş gövdeli uçak (${flight.aircraftType}) bu pozisyona (${targetPosition}) park edemez. AMS Stand İzin Kurallarına (Category D, E, F) göre bu pozisyon yalnızca dar gövde (Cat C) içindir.`);
         }
     } else {
         // Narrowbody (Cat A, B, C): Cannot park on a MARS Center stand if L/R sub-stands exist
@@ -257,11 +313,10 @@ export function validateFlightPlacement(
         }
     }
 
-    // --- RULE D: Heavy Category F Stand Restriction (PDF 2) ---
+    // --- RULE D: Heavy Category F Stand Restriction (stand_allocation_permission.pdf) ---
     if (isHeavy) {
-        const basePos = targetPosition.replace(/[LR]$/, '');
-        if (!CAT_F_HEAVY_STANDS.has(basePos) && !CAT_F_HEAVY_STANDS.has(targetPosition)) {
-            reasons.push(`Ağır Geniş Gövde (${flight.aircraftType}) bu pozisyona park edemez. Ağır stantlara (215-219, 313-319, H10-H51 vb.) verilmeli.`);
+        if (!isStandCatFCompatible(targetPosition)) {
+            reasons.push(`Ağır Geniş Gövde (Cat F / ${flight.aircraftType}) bu pozisyona (${targetPosition}) park edemez. AMS kurallarına göre yalnızca Cat F onaylı ağır pozisyonlara (A2, 215-219, 313-319, H10-H51 vb.) verilebilir.`);
         }
     }
 
