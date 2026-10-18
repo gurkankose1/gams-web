@@ -1412,40 +1412,84 @@ const App: React.FC<{ user: User }> = ({ user }) => {
 
     return (
         <div className="bg-gray-900 text-white h-screen flex flex-col overflow-hidden" onContextMenu={(e) => e.preventDefault()}>
-            <header className="flex flex-col p-2 bg-gray-800 border-b border-gray-700 shadow-md flex-shrink-0 z-40 gap-y-2 text-sm">
-                {/* Top Row: App Title, Data Management, User Actions */}
+            <header className="flex flex-col px-3 py-2 bg-[#1a1f2c] border-b border-gray-750 shadow-xl flex-shrink-0 z-40 gap-y-2 text-xs">
+                {/* Top Row: Brand, Financial KPIs, Operational Groups, Super Set, Export & Quick Actions */}
                 <div className="flex items-center justify-between w-full">
                     <div className="flex items-center gap-x-3">
-                        <h1 className="text-xl font-bold">GAMS</h1>
+                        {/* GAMS Brand Badge */}
+                        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-gradient-to-r from-blue-950/90 to-indigo-950/90 border border-blue-500/30 shadow-sm">
+                            <span className="text-sm font-black tracking-wider text-white">GAMS</span>
+                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 uppercase tracking-wider">AOS</span>
+                        </div>
+
+                        {/* Financial Revenue Summary */}
                         <HeaderRevenueSummary flights={flights} />
-                        <div className="h-8 border-l border-gray-600"></div>
-                        {/* Data Management */}
-                        <label htmlFor="file-upload" className="font-semibold py-1.5 px-3 rounded transition duration-300 bg-purple-600 hover:bg-purple-700 cursor-pointer">
-                            Excel Yükle
-                        </label>
-                        <input id="file-upload" type="file" className="hidden" onChange={onFileUpload} accept=".xlsx, .xls, .csv" />
-                        <button onClick={() => { setEditingMaintenanceBlock(null); setMaintenanceModalOpen(true); }} className="bg-orange-600 hover:bg-orange-700 text-white font-semibold py-1.5 px-3 rounded transition duration-300">
-                            Bakım Ekle
-                        </button>
-                        <button onClick={() => setMaintenanceManagementModalOpen(true)} className="bg-yellow-600 hover:bg-yellow-700 text-white font-semibold py-1.5 px-3 rounded transition duration-300">
-                            Bakım Yönetimi
-                        </button>
+
+                        <div className="h-6 w-px bg-gray-700"></div>
+
+                        {/* Data Management Group */}
+                        <div className="flex items-center gap-1.5">
+                            <label htmlFor="file-upload" className="flex items-center gap-1.5 px-3 py-1.5 font-semibold rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm hover:shadow transition duration-200 cursor-pointer select-none">
+                                <svg className="w-3.5 h-3.5 text-indigo-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                                </svg>
+                                Excel Yükle
+                            </label>
+                            <input id="file-upload" type="file" className="hidden" onChange={onFileUpload} accept=".xlsx, .xls, .csv" />
+
+                            <button 
+                                onClick={handleExportGateExcel} 
+                                className="flex items-center gap-1.5 px-3 py-1.5 font-semibold rounded-lg bg-gray-800/90 hover:bg-gray-750 text-emerald-400 hover:text-emerald-300 border border-emerald-600/40 shadow-sm transition duration-200"
+                                title="Uçuş atama ve gate bilgilerini Excel olarak dışa aktar"
+                            >
+                                <svg className="w-3.5 h-3.5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                </svg>
+                                Gate Dışa Aktar
+                            </button>
+                        </div>
+
+                        <div className="h-6 w-px bg-gray-700"></div>
+
+                        {/* Maintenance Controls Group */}
+                        <div className="flex items-center bg-gray-900/70 border border-gray-700 rounded-lg p-0.5 shadow-inner">
+                            <button 
+                                onClick={() => { setEditingMaintenanceBlock(null); setMaintenanceModalOpen(true); }} 
+                                className="px-2.5 py-1 font-semibold text-amber-300 hover:bg-gray-800 rounded-md transition flex items-center gap-1"
+                            >
+                                <span className="text-amber-400 font-bold">+</span> Bakım Ekle
+                            </button>
+                            <div className="h-4 w-px bg-gray-700/80 mx-0.5"></div>
+                            <button 
+                                onClick={() => setMaintenanceManagementModalOpen(true)} 
+                                className="px-2.5 py-1 font-medium text-gray-300 hover:text-white hover:bg-gray-800 rounded-md transition"
+                            >
+                                Bakım Yönetimi
+                            </button>
+                        </div>
+
+                        <div className="h-6 w-px bg-gray-700"></div>
+
+                        {/* Super Set AMS Rule Bypass Mode */}
                         <button
                             onClick={() => setIsSuperSetMode(prev => !prev)}
-                            className={`font-black text-xs py-1.5 px-3.5 rounded transition duration-300 flex items-center gap-1.5 shadow-lg select-none ${
+                            className={`flex items-center gap-2 px-3 py-1.5 font-bold rounded-lg transition duration-200 select-none shadow-sm border ${
                                 isSuperSetMode
-                                    ? 'bg-amber-400 hover:bg-amber-300 text-gray-950 ring-2 ring-amber-300 animate-pulse'
-                                    : 'bg-amber-700 hover:bg-amber-600 text-amber-100 border border-amber-400/60'
+                                    ? 'bg-amber-400 text-gray-950 border-amber-300 ring-2 ring-amber-300/60 shadow-amber-500/20 animate-pulse'
+                                    : 'bg-gray-900/80 hover:bg-gray-800 text-amber-400 border-amber-500/40 hover:border-amber-400'
                             }`}
-                            title="Destinasyon, iç/dış hat, kargo ve pervaneli uçak kısıtlarını askıya alır. Sadece tip/boyut kısıtları aktif kalır."
+                            title="Tip ve MARS emniyeti hariç tüm destinasyon, iç/dış hat ve kargo kurallarını askıya alır."
                         >
-                            <span>⚡</span> Super Set {isSuperSetMode ? '(AÇIK)' : '(KAPALI)'}
-                        </button>
-                        <button onClick={handleClearAllFlights} className="bg-red-600 hover:bg-red-700 text-white font-semibold py-1.5 px-3 rounded transition duration-300">
-                            Tümünü Sil
+                            <span className="text-sm">⚡</span>
+                            <span>Super Set</span>
+                            <span className={`text-[10px] font-black px-1.5 py-0.5 rounded tracking-wide ${isSuperSetMode ? 'bg-black text-amber-300' : 'bg-gray-800 text-gray-400 border border-gray-700'}`}>
+                                {isSuperSetMode ? 'AÇIK' : 'KAPALI'}
+                            </span>
                         </button>
                     </div>
-                    <div className="flex items-center gap-x-3">
+
+                    {/* Right Side: Quick Navigation & Clear */}
+                    <div className="flex items-center gap-x-2.5">
                         <button 
                             onClick={() => {
                                 if (flights.length === 0 || !mainContentRef.current) return;
@@ -1462,77 +1506,123 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                                 const targetScrollLeft = Math.max(0, Math.min(scrollWidth - clientWidth, ratio * scrollWidth - clientWidth / 4));
                                 mainContentRef.current.scrollTo({ left: targetScrollLeft, behavior: 'smooth' });
                             }}
-                            className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-1.5 px-3 rounded shadow-md transition duration-300 flex items-center gap-1.5"
+                            className="flex items-center gap-1.5 px-3 py-1.5 font-semibold rounded-lg bg-blue-600 hover:bg-blue-500 text-white shadow-sm transition duration-200"
                             title="Zaman akışında ilk uçuşun saatinin olduğu yere otomatik kaydır"
                         >
                             <span>🎯</span> Uçuşlara Git
                         </button>
+
                         <button 
-                            onClick={handleExportGateExcel} 
-                            className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-1.5 px-4 rounded shadow-md transition duration-300 flex items-center gap-2"
-                            title="Uçuş atama ve gate bilgilerini Excel olarak dışa aktar"
+                            onClick={handleClearAllFlights} 
+                            className="flex items-center gap-1.5 px-2.5 py-1.5 font-semibold rounded-lg bg-red-950/40 hover:bg-red-900/60 text-red-400 hover:text-red-200 border border-red-800/40 transition duration-200"
+                            title="Tüm uçuşları ve bakım kayıtlarını temizle"
                         >
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                             </svg>
-                            Gate Dışa Aktar
+                            Tümünü Sil
                         </button>
                     </div>
                 </div>
                 
-                {/* Bottom Row: View Controls */}
-                <div className="flex items-center justify-between w-full border-t border-gray-700 pt-2">
+                {/* Bottom Row: View Selection, Flight Linking, Search & Filter Controls */}
+                <div className="flex items-center justify-between w-full border-t border-gray-750/80 pt-2">
                     <div className="flex items-center gap-x-3">
-                        {/* View Type */}
-                        <div className="flex items-center rounded-md bg-gray-700 p-0.5">
-                            <button onClick={() => setCurrentView('parking')} className={`px-3 py-1 font-medium rounded-md transition-colors ${currentView === 'parking' ? 'bg-purple-600 text-white' : 'text-gray-300 hover:bg-gray-600'}`}>Park Planı</button>
-                            <button onClick={() => setCurrentView('gate')} className={`px-3 py-1 font-medium rounded-md transition-colors ${currentView === 'gate' ? 'bg-purple-600 text-white' : 'text-gray-300 hover:bg-gray-600'}`}>Gate Planı</button>
+                        {/* View Switcher: Park Planı vs Gate Planı */}
+                        <div className="flex items-center bg-gray-900/80 border border-gray-700/80 rounded-lg p-0.5 shadow-inner">
+                            <button 
+                                onClick={() => setCurrentView('parking')} 
+                                className={`px-3 py-1 font-semibold rounded-md transition duration-200 ${currentView === 'parking' ? 'bg-blue-600 text-white shadow' : 'text-gray-400 hover:text-gray-200'}`}
+                            >
+                                Park Planı
+                            </button>
+                            <button 
+                                onClick={() => setCurrentView('gate')} 
+                                className={`px-3 py-1 font-semibold rounded-md transition duration-200 ${currentView === 'gate' ? 'bg-blue-600 text-white shadow' : 'text-gray-400 hover:text-gray-200'}`}
+                            >
+                                Gate Planı
+                            </button>
                         </div>
-                        {/* Flight Actions */}
-                        <div className="h-8 border-l border-gray-600"></div>
-                        <div className="flex items-center gap-x-2">
-                            <button onClick={handleUnlink} disabled={!canUnlink} className="w-36 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-1 px-3 rounded-md transition duration-300 disabled:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed">
+
+                        <div className="h-6 w-px bg-gray-700/60"></div>
+
+                        {/* Turnaround Linking Group */}
+                        <div className="flex items-center bg-gray-900/80 border border-gray-700/80 rounded-lg p-0.5 shadow-inner">
+                            <button 
+                                onClick={handleUnlink} 
+                                disabled={!canUnlink} 
+                                className="px-3 py-1 font-medium rounded-md transition duration-200 disabled:opacity-30 disabled:cursor-not-allowed text-gray-300 hover:text-white hover:bg-gray-800"
+                            >
                                 Bağlantıyı Kopar
                             </button>
-                            <button onClick={handleLink} disabled={!canLink} className="w-36 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-1 px-3 rounded-md transition duration-300 disabled:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed">
-                                Bağla
-                            </button>
-                            <button
-                                onClick={() => setIsSuperSetMode(prev => !prev)}
-                                className={`px-3 py-1 font-bold text-xs rounded-md transition duration-300 flex items-center gap-1 shadow-md ${
-                                    isSuperSetMode
-                                        ? 'bg-amber-500 text-gray-950 ring-2 ring-amber-300 animate-pulse'
-                                        : 'bg-gray-700 hover:bg-gray-600 text-amber-400 border border-amber-500/50'
-                                }`}
-                                title="Tip kısıtları ve boyut sınırları hariç tüm destinasyon, iç/dış hat ve kargo kurallarını askıya alır."
+                            <div className="h-4 w-px bg-gray-700/80 mx-0.5"></div>
+                            <button 
+                                onClick={handleLink} 
+                                disabled={!canLink} 
+                                className="px-3 py-1 font-medium rounded-md transition duration-200 disabled:opacity-30 disabled:cursor-not-allowed text-gray-300 hover:text-white hover:bg-gray-800"
                             >
-                                ⚡ Super Set {isSuperSetMode ? '(AÇIK)' : '(KAPALI)'}
+                                Bağla
                             </button>
                         </div>
                     </div>
-                    <div className="flex items-center gap-x-3">
-                        {/* Filter Type */}
-                        <div className="flex items-center rounded-md bg-gray-700 p-0.5">
-                            <button onClick={() => setActiveFilter('all')} className={`px-3 py-1 font-medium rounded-md transition-colors ${activeFilter === 'all' ? 'bg-purple-600 text-white' : 'text-gray-300 hover:bg-gray-600'}`}>Tümü</button>
-                            <button onClick={() => setActiveFilter('domestic')} className={`px-3 py-1 font-medium rounded-md transition-colors ${activeFilter === 'domestic' ? 'bg-purple-600 text-white' : 'text-gray-300 hover:bg-gray-600'}`}>İç Hat</button>
-                            <button onClick={() => setActiveFilter('international')} className={`px-3 py-1 font-medium rounded-md transition-colors ${activeFilter === 'international' ? 'bg-purple-600 text-white' : 'text-gray-300 hover:bg-gray-600'}`}>Dış Hat</button>
+
+                    {/* Right Side: Filters, Search, Timeline Dates */}
+                    <div className="flex items-center gap-x-2.5">
+                        {/* Domestic / International Filter Pill */}
+                        <div className="flex items-center bg-gray-900/80 border border-gray-700/80 rounded-lg p-0.5 shadow-inner">
+                            <button 
+                                onClick={() => setActiveFilter('all')} 
+                                className={`px-2.5 py-1 font-semibold rounded-md transition duration-200 ${activeFilter === 'all' ? 'bg-purple-600 text-white shadow' : 'text-gray-400 hover:text-gray-200'}`}
+                            >
+                                Tümü
+                            </button>
+                            <button 
+                                onClick={() => setActiveFilter('domestic')} 
+                                className={`px-2.5 py-1 font-semibold rounded-md transition duration-200 ${activeFilter === 'domestic' ? 'bg-red-800 text-white shadow' : 'text-gray-400 hover:text-gray-200'}`}
+                            >
+                                İç Hat
+                            </button>
+                            <button 
+                                onClick={() => setActiveFilter('international')} 
+                                className={`px-2.5 py-1 font-semibold rounded-md transition duration-200 ${activeFilter === 'international' ? 'bg-blue-800 text-white shadow' : 'text-gray-400 hover:text-gray-200'}`}
+                            >
+                                Dış Hat
+                            </button>
                         </div>
-                        {/* Search */}
-                        <input
-                            type="text"
-                            placeholder="Uçuş Ara..."
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            className="bg-gray-700 border border-gray-600 rounded-md px-3 py-1.5 text-white focus:ring-purple-500 focus:border-purple-500 w-56"
-                        />
-                        {/* Date Pickers */}
-                        <div className="flex items-center gap-x-2">
-                            <label htmlFor="start-date" className="font-medium text-gray-300 whitespace-nowrap">Başlangıç:</label>
-                            <input id="start-date" type="datetime-local" value={formatDateForInput(startDate)} onChange={handleStartDateChange} className="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-white focus:ring-purple-500 focus:border-purple-500"/>
+
+                        {/* Search Input with Search Icon */}
+                        <div className="relative">
+                            <svg className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                            </svg>
+                            <input
+                                type="text"
+                                placeholder="Uçuş Ara (No, Tip, Reg)..."
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                className="bg-gray-900/90 border border-gray-700 rounded-lg pl-8 pr-3 py-1.5 text-white placeholder-gray-500 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 w-52 text-xs outline-none transition"
+                            />
                         </div>
-                        <div className="flex items-center gap-x-2">
-                            <label htmlFor="end-date" className="font-medium text-gray-300 whitespace-nowrap">Bitiş:</label>
-                            <input id="end-date" type="datetime-local" value={formatDateForInput(endDate)} onChange={handleEndDateChange} className="bg-gray-700 border border-gray-600 rounded-md px-2 py-1 text-white focus:ring-purple-500 focus:border-purple-500"/>
+
+                        {/* Unified Date Range Container */}
+                        <div className="flex items-center gap-1.5 bg-gray-900/80 border border-gray-700/80 px-2.5 py-1 rounded-lg text-xs">
+                            <span className="text-gray-400 font-medium">Başlangıç:</span>
+                            <input 
+                                id="start-date" 
+                                type="datetime-local" 
+                                value={formatDateForInput(startDate)} 
+                                onChange={handleStartDateChange} 
+                                className="bg-transparent text-gray-200 outline-none text-xs cursor-pointer focus:text-white"
+                            />
+                            <span className="text-gray-600">|</span>
+                            <span className="text-gray-400 font-medium">Bitiş:</span>
+                            <input 
+                                id="end-date" 
+                                type="datetime-local" 
+                                value={formatDateForInput(endDate)} 
+                                onChange={handleEndDateChange} 
+                                className="bg-transparent text-gray-200 outline-none text-xs cursor-pointer focus:text-white"
+                            />
                         </div>
                     </div>
                 </div>
