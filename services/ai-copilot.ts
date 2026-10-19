@@ -1,4 +1,4 @@
-import { Flight } from '../types.ts';
+import { Flight, MaintenanceBlock } from '../types.ts';
 import { CONCOURSE_LAYOUT, WIDE_BODY_AIRCRAFT } from '../constants.ts';
 import {
     isContactStand,
@@ -14,6 +14,7 @@ import {
     buildStandTopology,
     canFitOnStand,
     placeOnStand,
+    hasMaintenanceConflict,
     StandSchedule
 } from './ai-allocator.ts';
 import { calculateRevenue } from './revenue-calculator.ts';
@@ -103,12 +104,16 @@ const isFlightHeavy = (f: Flight): boolean => {
  * 1. Direct Gap Fills (idle bridge windows that fit short-stay remote flights).
  * 2. Narrowbody Consolidation (relocates narrowbody from wide-capable stand to C/E, opening stand for remote widebody).
  */
-export function runAiCopilotAnalysis(flights: Flight[]): CopilotAnalysisResult {
-    const topology = buildStandTopology();
+export function runAiCopilotAnalysis(flights: Flight[], maintenanceBlocks?: MaintenanceBlock[]): CopilotAnalysisResult {
+    const topology = buildStandTopology(maintenanceBlocks);
 
     // Populate topology with current assignments
     flights.forEach(f => {
         if (!f.parkingPosition) return;
+        // If flight already conflicts with a maintenance block, do not place into topology
+        if (hasMaintenanceConflict(f.parkingPosition, f.scheduledArrival, f.scheduledDeparture, maintenanceBlocks)) {
+            return;
+        }
         const sched = topology.get(f.parkingPosition);
         if (sched) {
             sched.intervals.push({
@@ -235,7 +240,7 @@ export function runAiCopilotAnalysis(flights: Flight[]): CopilotAnalysisResult {
 
         // Test candidate stands
         for (const cand of candidateStands) {
-            if (canFitOnStand(cand, arrMs, depMs, isWide, topology, isHeavy)) {
+            if (canFitOnStand(cand, arrMs, depMs, isWide, topology, isHeavy) && !hasMaintenanceConflict(cand.stand, flight.scheduledArrival, flight.scheduledDeparture, maintenanceBlocks)) {
                 targetStand = cand;
                 break;
             }
@@ -336,7 +341,7 @@ export function runAiCopilotAnalysis(flights: Flight[]): CopilotAnalysisResult {
 
                 let relocatedStand: StandSchedule | null = null;
                 for (const ns of narrowTargets) {
-                    if (canFitOnStand(ns, bArr, bDep, false, topology)) {
+                    if (canFitOnStand(ns, bArr, bDep, false, topology) && !hasMaintenanceConflict(ns.stand, blockingFlight.scheduledArrival, blockingFlight.scheduledDeparture, maintenanceBlocks)) {
                         relocatedStand = ns;
                         break;
                     }
@@ -346,8 +351,8 @@ export function runAiCopilotAnalysis(flights: Flight[]): CopilotAnalysisResult {
                     // Temporarily remove blocking flight from old stand
                     sched.intervals = sched.intervals.filter((i: { start: number; end: number; flightId: string }) => i.flightId !== blockingFlightId);
 
-                    // Verify widebody can fit now
-                    if (canFitOnStand(sched, wArr, wDep, true, topology, isHeavy)) {
+                    // Verify widebody can fit now without maintenance conflict
+                    if (canFitOnStand(sched, wArr, wDep, true, topology, isHeavy) && !hasMaintenanceConflict(sched.stand, remWide.scheduledArrival, remWide.scheduledDeparture, maintenanceBlocks)) {
                         // Place narrowbody on new dedicated stand
                         placeOnStand(relocatedStand, bArr, bDep, blockingFlightId);
                         simulatedAssignments.set(blockingFlightId, relocatedStand.stand);

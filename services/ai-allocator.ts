@@ -1,4 +1,4 @@
-import { Flight } from '../types.ts';
+import { Flight, MaintenanceBlock } from '../types.ts';
 import { CONCOURSE_LAYOUT, TURKISH_DOMESTIC_AIRPORTS } from '../constants.ts';
 import { 
     isCargoFlight, 
@@ -303,7 +303,42 @@ export interface StandSchedule {
     intervals: { start: number; end: number; flightId: string }[];
 }
 
-export function buildStandTopology(): Map<string, StandSchedule> {
+export function hasMaintenanceConflict(
+    stand: string,
+    arrDate: Date,
+    depDate: Date,
+    maintenanceBlocks?: MaintenanceBlock[]
+): boolean {
+    if (!stand || !maintenanceBlocks || maintenanceBlocks.length === 0) return false;
+    const cleanStand = stand.trim().toUpperCase();
+    const arrMs = arrDate.getTime();
+    const depMs = depDate.getTime();
+
+    for (const block of maintenanceBlocks) {
+        const blockPos = block.parkingPosition ? block.parkingPosition.trim().toUpperCase() : '';
+        if (!blockPos) continue;
+        const bStartMs = new Date(block.startTime).getTime();
+        const bEndMs = new Date(block.endTime).getTime();
+        if (isNaN(bStartMs) || isNaN(bEndMs) || bStartMs >= bEndMs) continue;
+
+        if (arrMs < bEndMs && depMs > bStartMs) {
+            // Direct stand match
+            if (cleanStand === blockPos) return true;
+
+            // MARS relationship: sub-stand to center (e.g. cleanStand is A6L, blockPos is A6)
+            if ((cleanStand.endsWith('L') || cleanStand.endsWith('R')) && cleanStand.slice(0, -1) === blockPos) {
+                return true;
+            }
+            // MARS relationship: center to sub-stand (e.g. cleanStand is A6, blockPos is A6L)
+            if ((blockPos.endsWith('L') || blockPos.endsWith('R')) && blockPos.slice(0, -1) === cleanStand) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+export function buildStandTopology(maintenanceBlocks?: MaintenanceBlock[]): Map<string, StandSchedule> {
     const topology = new Map<string, StandSchedule>();
 
     // Step 1: Detect all MARS relations
@@ -344,6 +379,26 @@ export function buildStandTopology(): Map<string, StandSchedule> {
             intervals: []
         });
     });
+
+    // Step 3: Populate Maintenance Blocks (Downgrades) into Topology Intervals
+    if (maintenanceBlocks && maintenanceBlocks.length > 0) {
+        maintenanceBlocks.forEach(block => {
+            const pos = block.parkingPosition ? block.parkingPosition.trim().toUpperCase() : '';
+            if (!pos) return;
+            const sched = topology.get(pos);
+            const startMs = new Date(block.startTime).getTime();
+            const endMs = new Date(block.endTime).getTime();
+            if (isNaN(startMs) || isNaN(endMs) || startMs >= endMs) return;
+
+            if (sched) {
+                sched.intervals.push({
+                    start: startMs,
+                    end: endMs,
+                    flightId: `MAINTENANCE-${block.id}`
+                });
+            }
+        });
+    }
 
     return topology;
 }
@@ -438,9 +493,10 @@ export interface AiAllocationResult {
 export function runFromScratchAllocation(
     allFlights: Flight[],
     startDate?: Date,
-    endDate?: Date
+    endDate?: Date,
+    maintenanceBlocks?: MaintenanceBlock[]
 ): AiAllocationResult {
-    const topology = buildStandTopology();
+    const topology = buildStandTopology(maintenanceBlocks);
     const flightUpdates = new Map<string, string | null>();
 
     // 1. Identify and categorize flights
@@ -1323,6 +1379,12 @@ export function runFromScratchAllocation(
 
         let needsDemotion = false;
 
+        // Rule 0: Maintenance / Downgrade conflict check
+        if (hasMaintenanceConflict(pos, f.scheduledArrival, f.scheduledDeparture, maintenanceBlocks)) {
+            console.warn(`[SAFETY NET] Maintenance conflict prevented on ${pos} for flight ${f.id}. Demoting/Relocating.`);
+            needsDemotion = true;
+        }
+
         // Rule 1: AMS Widebody Stand Permission Check (stand_allocation_permission.pdf)
         // No widebody on any narrowbody-only stand (e.g. 100-132, 200-214, 300-312, 601-604, C1-C4, E1-E4, D1-D5, L/R sub-stands)
         if (isWide && !isStandWidebodyCompatible(pos)) {
@@ -1401,12 +1463,13 @@ export function runFromScratchAllocation(
 export function runPreserveAndElevateAllocation(
     allFlights: Flight[],
     startDate?: Date,
-    endDate?: Date
+    endDate?: Date,
+    maintenanceBlocks?: MaintenanceBlock[]
 ): AiAllocationResult | null {
     const existingContactCount = allFlights.filter(f => f.parkingPosition && isContactStand(f.parkingPosition)).length;
     if (existingContactCount === 0) return null;
 
-    const topology = buildStandTopology();
+    const topology = buildStandTopology(maintenanceBlocks);
     const flightUpdates = new Map<string, string | null>();
 
     const eligibleFlights: Flight[] = [];
@@ -1463,6 +1526,12 @@ export function runPreserveAndElevateAllocation(
         const isWide = isFlightWide(f);
         const isHeavy = isFlightHeavy(f);
         const allowedConc = getAllowedBridgeConcourses(f);
+
+        // Immediate check: Does existing flight conflict with maintenance / downgrade block?
+        if (hasMaintenanceConflict(pos, f.scheduledArrival, f.scheduledDeparture, maintenanceBlocks)) {
+            remoteOrUnplacedEligible.push(f);
+            continue;
+        }
 
         let canKeep = false;
         if (sched && allowedConc.includes(sched.concourse)) {
@@ -1774,6 +1843,13 @@ export function runPreserveAndElevateAllocation(
         const concourse = Object.keys(CONCOURSE_LAYOUT).find(c => CONCOURSE_LAYOUT[c].includes(pos)) || '';
 
         let needsDemotion = false;
+
+        // Rule 0: Maintenance / Downgrade conflict check
+        if (hasMaintenanceConflict(pos, f.scheduledArrival, f.scheduledDeparture, maintenanceBlocks)) {
+            console.warn(`[SAFETY NET] Maintenance conflict on ${pos} for flight ${f.id}. Relocating.`);
+            needsDemotion = true;
+        }
+
         if (isWide && !isStandWidebodyCompatible(pos)) needsDemotion = true;
         if (isHeavy && !isStandCatFCompatible(pos)) needsDemotion = true;
         if (!isWide) {
@@ -1825,17 +1901,18 @@ export function runPreserveAndElevateAllocation(
 export function runAiBridgeAllocation(
     allFlights: Flight[],
     startDate?: Date,
-    endDate?: Date
+    endDate?: Date,
+    maintenanceBlocks?: MaintenanceBlock[]
 ): AiAllocationResult {
     const existingContactCount = allFlights.filter(f => f.parkingPosition && isContactStand(f.parkingPosition)).length;
 
     // If flights already have contact stand assignments from human dispatcher, run Warm-Start Optimization
     let elevateResult: AiAllocationResult | null = null;
     if (existingContactCount > 0) {
-        elevateResult = runPreserveAndElevateAllocation(allFlights, startDate, endDate);
+        elevateResult = runPreserveAndElevateAllocation(allFlights, startDate, endDate, maintenanceBlocks);
     }
 
-    const scratchResult = runFromScratchAllocation(allFlights, startDate, endDate);
+    const scratchResult = runFromScratchAllocation(allFlights, startDate, endDate, maintenanceBlocks);
 
     // If elevateResult exists and achieved >= bridge assigned count, prefer it!
     if (elevateResult && elevateResult.stats.bridgeAssignedCount >= scratchResult.stats.bridgeAssignedCount) {

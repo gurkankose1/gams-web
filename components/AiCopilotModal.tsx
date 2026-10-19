@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Flight } from '../types.ts';
+import { Flight, MaintenanceBlock } from '../types.ts';
 import { 
     CopilotOpportunity, 
     CopilotAnalysisResult, 
@@ -12,6 +12,7 @@ interface AiCopilotModalProps {
     isOpen: boolean;
     onClose: () => void;
     flights: Flight[];
+    maintenanceBlocks?: MaintenanceBlock[];
     onApplyUpdates: (updatedFlights: Flight[], message: string) => void;
 }
 
@@ -19,6 +20,7 @@ export const AiCopilotModal: React.FC<AiCopilotModalProps> = ({
     isOpen,
     onClose,
     flights,
+    maintenanceBlocks,
     onApplyUpdates,
 }) => {
     const [selectedTab, setSelectedTab] = useState<'ALL' | 'DOMESTIC' | 'GAP' | 'CONSOLIDATION' | 'WIDEBODY' | 'DIAGNOSTIC'>('ALL');
@@ -54,8 +56,8 @@ export const AiCopilotModal: React.FC<AiCopilotModalProps> = ({
                 }
             };
         }
-        return runAiCopilotAnalysis(flights);
-    }, [flights, isOpen]);
+        return runAiCopilotAnalysis(flights, maintenanceBlocks);
+    }, [flights, maintenanceBlocks, isOpen]);
 
     if (!isOpen) return null;
 

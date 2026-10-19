@@ -865,7 +865,7 @@ const App: React.FC<{ user: User }> = ({ user }) => {
         setTimeout(() => {
             try {
                 const initialStats = calculateBridgeUtilization(flights, startDate, endDate);
-                const { flights: newFlights, stats, swapDetails, totalSwapsPerformed, netFlightsGained, gapFillsPerformed } = runAiBridgeAllocation(flights, startDate, endDate);
+                const { flights: newFlights, stats, swapDetails, totalSwapsPerformed, netFlightsGained, gapFillsPerformed } = runAiBridgeAllocation(flights, startDate, endDate, maintenanceBlocks);
 
                 const newHistoryEntry: FlightHistoryEntry = {
                     user: currentUser.username,
@@ -1461,18 +1461,95 @@ const App: React.FC<{ user: User }> = ({ user }) => {
     };
     
     const handleSaveMaintenance = (block: Omit<MaintenanceBlock, 'id'>, id_to_update?: string) => {
-        if (id_to_update) {
-            const newBlocks = maintenanceBlocks.map(b => b.id === id_to_update ? { ...b, ...block } : b);
-            updateDatabase({ flights, maintenanceBlocks: newBlocks, gates: gateList });
-        } else {
-            const newBlock: MaintenanceBlock = { ...block, id: `maint-${Date.now()}` };
-            updateDatabase({ flights, maintenanceBlocks: [...maintenanceBlocks, newBlock], gates: gateList });
+        const savedBlock: MaintenanceBlock = id_to_update 
+            ? { ...block, id: id_to_update } 
+            : { ...block, id: `maint-${Date.now()}` };
+
+        const newBlocks = id_to_update
+            ? maintenanceBlocks.map(b => b.id === id_to_update ? savedBlock : b)
+            : [...maintenanceBlocks, savedBlock];
+
+        // Safely pull any existing flights on this stand (or MARS counterpart) that conflict with the maintenance window into pool!
+        const bPos = savedBlock.parkingPosition.trim().toUpperCase();
+        const bStartMs = new Date(savedBlock.startTime).getTime();
+        const bEndMs = new Date(savedBlock.endTime).getTime();
+
+        let conflictCount = 0;
+        const updatedFlights = flights.map(f => {
+            if (!f.parkingPosition) return f;
+            const fPos = f.parkingPosition.trim().toUpperCase();
+            const fArrMs = f.scheduledArrival.getTime();
+            const fDepMs = f.scheduledDeparture.getTime();
+
+            const isMatch = fPos === bPos ||
+                ((fPos.endsWith('L') || fPos.endsWith('R')) && fPos.slice(0, -1) === bPos) ||
+                ((bPos.endsWith('L') || bPos.endsWith('R')) && bPos.slice(0, -1) === fPos);
+
+            if (isMatch && fArrMs < bEndMs && fDepMs > bStartMs) {
+                conflictCount++;
+                return {
+                    ...f,
+                    parkingPosition: null,
+                    history: [
+                        ...(f.history || []),
+                        {
+                            user: currentUser.username,
+                            action: `${bPos} pozisyonuna bakım (downgrade) girildiği için uçak havuza çekildi.`,
+                            timestamp: new Date()
+                        }
+                    ]
+                };
+            }
+            return f;
+        });
+
+        updateDatabase({ flights: updatedFlights, maintenanceBlocks: newBlocks, gates: gateList });
+
+        if (conflictCount > 0) {
+            setAllocationMessage(`⚠️ ${bPos} pozisyonuna bakım girildi: Çakışan ${conflictCount} uçuş güvenli şekilde havuza çekildi.`);
+            setTimeout(() => setAllocationMessage(null), 8000);
         }
     };
     
     const handleUpdateMaintenanceBlock = (blockId: string, newTimes: { startTime?: Date; endTime?: Date }) => {
         const newBlocks = maintenanceBlocks.map(b => b.id === blockId ? { ...b, ...newTimes } : b );
-        updateDatabase({ flights, maintenanceBlocks: newBlocks, gates: gateList });
+        const updatedBlock = newBlocks.find(b => b.id === blockId);
+
+        let updatedFlights = flights;
+        if (updatedBlock) {
+            const bPos = updatedBlock.parkingPosition.trim().toUpperCase();
+            const bStartMs = new Date(updatedBlock.startTime).getTime();
+            const bEndMs = new Date(updatedBlock.endTime).getTime();
+
+            updatedFlights = flights.map(f => {
+                if (!f.parkingPosition) return f;
+                const fPos = f.parkingPosition.trim().toUpperCase();
+                const fArrMs = f.scheduledArrival.getTime();
+                const fDepMs = f.scheduledDeparture.getTime();
+
+                const isMatch = fPos === bPos ||
+                    ((fPos.endsWith('L') || fPos.endsWith('R')) && fPos.slice(0, -1) === bPos) ||
+                    ((bPos.endsWith('L') || bPos.endsWith('R')) && bPos.slice(0, -1) === fPos);
+
+                if (isMatch && fArrMs < bEndMs && fDepMs > bStartMs) {
+                    return {
+                        ...f,
+                        parkingPosition: null,
+                        history: [
+                            ...(f.history || []),
+                            {
+                                user: currentUser.username,
+                                action: `${bPos} pozisyonundaki bakım süresi güncellendiği için uçak havuza çekildi.`,
+                                timestamp: new Date()
+                            }
+                        ]
+                    };
+                }
+                return f;
+            });
+        }
+
+        updateDatabase({ flights: updatedFlights, maintenanceBlocks: newBlocks, gates: gateList });
     };
     
     const handleDeleteMaintenanceBlock = (blockId: string) => {
@@ -1977,7 +2054,7 @@ const App: React.FC<{ user: User }> = ({ user }) => {
 
             <ExcelImportReportModal isOpen={isReportModalOpen} onClose={() => setReportModalOpen(false)} report={importReport} />
             <AiAllocationReportModal isOpen={isAiReportModalOpen} onClose={() => setIsAiReportModalOpen(false)} report={aiReportData} />
-            <AiCopilotModal isOpen={isCopilotOpen} onClose={() => setIsCopilotOpen(false)} flights={flights} onApplyUpdates={handleCopilotUpdates} />
+            <AiCopilotModal isOpen={isCopilotOpen} onClose={() => setIsCopilotOpen(false)} flights={flights} maintenanceBlocks={maintenanceBlocks} onApplyUpdates={handleCopilotUpdates} />
             <ExcelErrorModal isOpen={isExcelErrorModalOpen} onClose={() => setExcelErrorModalOpen(false)} errors={excelErrors} />
             {historyModalFlight && <FlightHistoryModal flight={historyModalFlight} onClose={() => setHistoryModalFlight(null)} />}
             {trackingFlight && <FlightTrackingModal flight={trackingFlight} onClose={() => setTrackingFlight(null)} />}
