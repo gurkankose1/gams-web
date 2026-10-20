@@ -10,6 +10,7 @@ interface TimelineLaneProps {
   laneType: 'parking' | 'gate';
   flights: Flight[];
   allFlights: Flight[];
+  flightsByParkingPosition?: Record<string, Flight[]>;
   onDropFlight: (flightId: string, laneId: string) => void;
   startDate: Date;
   totalDurationMs: number;
@@ -26,14 +27,10 @@ interface TimelineLaneProps {
 }
 
 const getRelatedMarsPositions = (pos: string): string[] => {
-    const baseMatch = pos.match(/^([A-Z\d]+)/);
-    if (!baseMatch) return [];
-    const basePosition = baseMatch[1];
-    
     if (pos.endsWith('L') || pos.endsWith('R')) {
-        return [basePosition];
+        return [pos.slice(0, -1)];
     } else {
-        return [`${basePosition}L`, `${basePosition}R`];
+        return [`${pos}L`, `${pos}R`];
     }
 };
 
@@ -47,11 +44,12 @@ const getParkingPositionType = (pos: string): 'domestic' | 'international' | 'mi
 };
 
 
-export const TimelineLane: React.FC<TimelineLaneProps> = ({ 
+const TimelineLaneComponent: React.FC<TimelineLaneProps> = ({ 
     laneId,
     laneType,
     flights, 
     allFlights, 
+    flightsByParkingPosition,
     onDropFlight, 
     startDate, 
     totalDurationMs, 
@@ -108,16 +106,14 @@ export const TimelineLane: React.FC<TimelineLaneProps> = ({
     };
 
 
-    const [{ isOver, canDrop, isDragging }, drop] = useDrop(() => ({
+    const [{ isOver, canDrop }, drop] = useDrop(() => ({
         accept: ItemTypes.FLIGHT,
-        drop: (item: { id: string }) => onDropFlight(item.id, laneId),
-        canDrop: (item: { id: string }) => {
-            const draggedFlight = allFlights.find(f => f.id === item.id);
+        drop: (item: { id: string; flight?: Flight }) => onDropFlight(item.id, laneId),
+        canDrop: (item: { id: string; flight?: Flight }) => {
+            const draggedFlight = item?.flight || allFlights.find(f => f.id === item.id);
             if (!draggedFlight) return false;
 
-            const flightsOnThisLane = allFlights.filter(f => laneType === 'parking' ? f.parkingPosition === laneId : f.gate === laneId);
-
-            const hasTimeOverlap = flightsOnThisLane.some(
+            const hasTimeOverlap = flights.some(
                 existingFlight =>
                     existingFlight.id !== draggedFlight.id &&
                     draggedFlight.scheduledArrival < existingFlight.scheduledDeparture &&
@@ -138,24 +134,20 @@ export const TimelineLane: React.FC<TimelineLaneProps> = ({
            
             return true;
         },
-        collect: (monitor) => ({
-            isOver: monitor.isOver(),
-            canDrop: monitor.canDrop(),
-            isDragging: !!monitor.getItem(),
-        }),
-    }), [onDropFlight, laneId, allFlights, ruleOverrides, maintenanceBlocks, laneType, isSuperSetMode]);
+        collect: (monitor) => {
+            const isOver = !!monitor.isOver();
+            return {
+                isOver,
+                canDrop: isOver ? !!monitor.canDrop() : false,
+            };
+        },
+    }), [onDropFlight, laneId, flights, allFlights, ruleOverrides, maintenanceBlocks, laneType, isSuperSetMode]);
 
     let laneBgClass = 'bg-[#3a3a3a]';
-    if (isDragging) {
-        if (isOver) {
-            laneBgClass = canDrop
-                ? 'bg-emerald-600/75 border-l-4 border-l-emerald-300 ring-2 ring-emerald-400/90 z-20 shadow-lg'
-                : 'bg-rose-600/75 border-l-4 border-l-rose-300 ring-2 ring-rose-400/90 z-20 shadow-lg';
-        } else {
-            laneBgClass = canDrop
-                ? 'bg-emerald-950/50 border-l-4 border-l-emerald-500/80 transition-colors'
-                : 'bg-rose-950/40 border-l-4 border-l-rose-500/60 opacity-70 transition-colors';
-        }
+    if (isOver) {
+        laneBgClass = canDrop
+            ? 'bg-emerald-600/75 border-l-4 border-l-emerald-300 ring-2 ring-emerald-400/90 z-20 shadow-lg'
+            : 'bg-rose-600/75 border-l-4 border-l-rose-300 ring-2 ring-rose-400/90 z-20 shadow-lg';
     }
 
     return (
@@ -185,9 +177,11 @@ export const TimelineLane: React.FC<TimelineLaneProps> = ({
                 const relatedPositions = getRelatedMarsPositions(laneId);
                 if (relatedPositions.length === 0 || totalDurationMs <= 0) return null;
 
-                const marsSiblingFlights = allFlights.filter(f => 
-                    f.parkingPosition && f.parkingPosition !== laneId && relatedPositions.includes(f.parkingPosition)
-                );
+                const marsSiblingFlights = flightsByParkingPosition
+                    ? relatedPositions.flatMap(pos => flightsByParkingPosition[pos] || [])
+                    : allFlights.filter(f => 
+                        f.parkingPosition && f.parkingPosition !== laneId && relatedPositions.includes(f.parkingPosition)
+                    );
 
                 const viewStartMs = startDate.getTime();
                 const viewEndMs = viewStartMs + totalDurationMs;
@@ -329,7 +323,9 @@ export const TimelineLane: React.FC<TimelineLaneProps> = ({
     );
 };
 
-export const TimelineHeader: React.FC<{startDate: Date, totalDurationMs: number}> = ({ startDate, totalDurationMs }) => {
+export const TimelineLane = React.memo(TimelineLaneComponent);
+
+const TimelineHeaderComponent: React.FC<{startDate: Date, totalDurationMs: number}> = ({ startDate, totalDurationMs }) => {
     if (totalDurationMs <= 0) return null;
     const totalHours = totalDurationMs / (1000 * 60 * 60);
 
@@ -373,7 +369,9 @@ export const TimelineHeader: React.FC<{startDate: Date, totalDurationMs: number}
     );
 };
 
-export const ConcourseOccupancyBar: React.FC<{
+export const TimelineHeader = React.memo(TimelineHeaderComponent);
+
+const ConcourseOccupancyBarComponent: React.FC<{
     concourseName: string;
     positions: string[];
     flightsByParkingPosition: Record<string, Flight[]>;
@@ -435,8 +433,9 @@ export const ConcourseOccupancyBar: React.FC<{
     );
 };
 
+export const ConcourseOccupancyBar = React.memo(ConcourseOccupancyBarComponent);
 
-export const CurrentTimeIndicator: React.FC<{ startDate: Date, totalDurationMs: number }> = ({ startDate, totalDurationMs }) => {
+const CurrentTimeIndicatorComponent: React.FC<{ startDate: Date, totalDurationMs: number }> = ({ startDate, totalDurationMs }) => {
     const [now, setNow] = useState(new Date());
 
     useEffect(() => {
@@ -468,3 +467,5 @@ export const CurrentTimeIndicator: React.FC<{ startDate: Date, totalDurationMs: 
         </div>
     );
 };
+
+export const CurrentTimeIndicator = React.memo(CurrentTimeIndicatorComponent);

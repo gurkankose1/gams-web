@@ -67,6 +67,7 @@ export const CustomDragLayer: React.FC = () => {
                 style={{
                     transform,
                     WebkitTransform: transform,
+                    willChange: 'transform',
                     width: item.width ? `${item.width}px` : '200px',
                     height: item.height ? `${item.height}px` : '44px',
                     backgroundColor: cardBg,

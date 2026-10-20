@@ -33,6 +33,9 @@ interface ParsedFlightsResult {
     errors: { rowIndex: number, reason: string, rowData: any }[];
 }
 
+const EMPTY_FLIGHTS: Flight[] = [];
+const EMPTY_MAINTENANCE: MaintenanceBlock[] = [];
+
 const calculateLayout = (flights: Flight[]) => {
     const tracks: Flight[][] = [];
     const flightPositions = new Map<string, { trackIndex: number }>();
@@ -692,6 +695,7 @@ const App: React.FC<{ user: User }> = ({ user }) => {
     const [highlightedFlightId, setHighlightedFlightId] = useState<string | null>(null);
     const [scrollToFlightId, setScrollToFlightId] = useState<string | null>(null);
     const flightElements = useRef(new Map<string, HTMLDivElement>());
+    const isLocalUpdateRef = useRef(false);
 
     const toggleConcourse = useCallback((concourseName: string) => {
         setCollapsedConcourses(prev => ({
@@ -701,6 +705,7 @@ const App: React.FC<{ user: User }> = ({ user }) => {
     }, []);
 
     const updateDatabase = (newState: { flights: Flight[], maintenanceBlocks: MaintenanceBlock[], gates?: string[] }) => {
+        isLocalUpdateRef.current = true;
         setFlights(newState.flights);
         setMaintenanceBlocks(newState.maintenanceBlocks);
         if (newState.gates) {
@@ -727,9 +732,13 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                 updateData.gates = newState.gates;
             }
             
-            set(ref(database, 'plan'), updateData).catch(err => console.warn('Firebase error:', err));
+            set(ref(database, 'plan'), updateData).catch(err => {
+                console.warn('Firebase error:', err);
+                isLocalUpdateRef.current = false;
+            });
         } catch (e) {
             console.warn('Firebase error:', e);
+            isLocalUpdateRef.current = false;
         }
     };
 
@@ -738,6 +747,12 @@ const App: React.FC<{ user: User }> = ({ user }) => {
     useEffect(() => {
         const planRef = ref(database, 'plan');
         const unsubscribe = onValue(planRef, (snapshot) => {
+            if (isLocalUpdateRef.current) {
+                // Skip processing snapshot echoed back from our own local mutation
+                isLocalUpdateRef.current = false;
+                return;
+            }
+
             if (snapshot.exists()) {
                 const data = snapshot.val();
 
@@ -1611,6 +1626,15 @@ const App: React.FC<{ user: User }> = ({ user }) => {
             return acc;
         }, {} as Record<string, Flight[]>);
     }, [flights]);
+
+    const maintenanceByParkingPosition = useMemo(() => {
+        const map: Record<string, MaintenanceBlock[]> = {};
+        maintenanceBlocks.forEach(b => {
+            if (!map[b.parkingPosition]) map[b.parkingPosition] = [];
+            map[b.parkingPosition].push(b);
+        });
+        return map;
+    }, [maintenanceBlocks]);
     
     const { canUnlink, canLink, selectedLegs } = useMemo(() => {
         const selected = Array.from(selectedFlightIds).map(id => flights.find(f => f.id === id)).filter(f => f) as Flight[];
@@ -2186,8 +2210,9 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                                                             key={pos} 
                                                             laneId={pos} 
                                                             laneType="parking"
-                                                            flights={flightsByParkingPosition[pos] || []} 
+                                                            flights={flightsByParkingPosition[pos] || EMPTY_FLIGHTS} 
                                                             allFlights={flights} 
+                                                            flightsByParkingPosition={flightsByParkingPosition}
                                                             onDropFlight={handleDropFlightOnParking} 
                                                             startDate={startDate} 
                                                             totalDurationMs={totalDurationMs} 
@@ -2198,7 +2223,7 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                                                             highlightedFlightId={highlightedFlightId}
                                                             activeFilter={activeFilter}
                                                             flightElements={flightElements}
-                                                            maintenanceBlocks={maintenanceBlocks.filter(b => b.parkingPosition === pos)}
+                                                            maintenanceBlocks={maintenanceByParkingPosition[pos] || EMPTY_MAINTENANCE}
                                                             onUpdateMaintenanceBlock={handleUpdateMaintenanceBlock}
                                                             isSuperSetMode={isSuperSetMode}
                                                         />
@@ -2217,8 +2242,9 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                                                 key={gate}
                                                 laneId={gate}
                                                 laneType="gate"
-                                                flights={flightsByGate[gate] || []}
+                                                flights={flightsByGate[gate] || EMPTY_FLIGHTS}
                                                 allFlights={flights}
+                                                flightsByParkingPosition={flightsByParkingPosition}
                                                 onDropFlight={handleDropFlightOnGate}
                                                 startDate={startDate}
                                                 totalDurationMs={totalDurationMs}
@@ -2229,7 +2255,7 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                                                 highlightedFlightId={highlightedFlightId}
                                                 activeFilter={activeFilter}
                                                 flightElements={flightElements}
-                                                maintenanceBlocks={[]} // Maintenance is per-parking-position
+                                                maintenanceBlocks={EMPTY_MAINTENANCE}
                                                 onUpdateMaintenanceBlock={() => {}} // Not applicable for gates
                                                 isSuperSetMode={isSuperSetMode}
                                             />

@@ -38,10 +38,13 @@ const FlightPool: React.FC<FlightPoolProps> = ({
   const [{ isOver, canDrop }, drop] = useDrop(() => ({
     accept: ItemTypes.FLIGHT,
     drop: (item: { id: string }) => onDropFlight(item.id),
-    collect: (monitor) => ({
-      isOver: !!monitor.isOver(),
-      canDrop: !!monitor.canDrop(),
-    }),
+    collect: (monitor) => {
+      const isOver = !!monitor.isOver();
+      return {
+        isOver,
+        canDrop: isOver ? !!monitor.canDrop() : false,
+      };
+    },
   }), [onDropFlight]);
   
   const poolRef = useRef<HTMLDivElement>(null);
@@ -252,4 +255,4 @@ const FlightPool: React.FC<FlightPoolProps> = ({
   );
 };
 
-export default FlightPool;
+export default React.memo(FlightPool);
