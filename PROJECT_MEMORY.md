@@ -41,7 +41,23 @@
      - Doğrudan Boşluk Doldurma (`DIRECT_GAP_FILL`), Dar/Geniş Konsolidasyonu (`NARROW_CONSOLIDATION`) ve İç Hat Tahliye Takası (`DOMESTIC_LIBERATION_SWAP`) eklendi.
      - **İç Hat Tahliye Takası (Concourse G Liberation):** Karma uçuşlar (D-I / I-D) Concourse G yerine Concourse A-F dış hat iskelelerine yönlendirilerek, Concourse G'nin 10 MARS körüğü açıkta bekleyen Saf İç Hat (D-D) uçuşları için rezerve edildi.
      - **OCC Kapasite Teşhis Analizi:** Co-Pilot modali içine "Kapasite Teşhisi" sekmesi eklenerek, kalan uçakların neden açıkta kaldığı (487 uçak > 4 saat kalış / Sıfır-tow kuralı, Concourse G doygunluğu, Kargo, Genel Havacılık, Turboprop uyumsuzluğu) şeffafça modellendi.
-6. **GitHub & Canlı Dağıtım:**
-   - Değişiklikler tek commit halinde GitHub `main` dalına pushlandı (`node single_commit_push.js`).
-   - Vercel GitHub entegrasyonu ile otomatik build ve dağıtım tetiklendi.
+6. **Bakım / Downgrade Blokajı Entegrasyonu (19.10.2026):**
+   - AI Allocator ve OCC AI Co-pilot motorlarına `hasMaintenanceConflict` kuralı entegre edildi.
+   - Bakım girildiğinde çakışan uçuşların anında havuza çekilmesi sağlandı.
+7. **Manuel Sürükle-Bırak (Drag-and-Drop) Performans & Donma Düzeltmesi (20.10.2026):**
+   - **Sorun:** 250 stand ve 1.500 uçuş varken bir uçak sürüklendiğinde React DnD `collect` içinde tüm 250 stand için `canDrop` ve AMS kurallarını (1.5 milyon dizi taraması) her mousemove anında çalıştırıyor, tüm stantları ve `FlightCard`ları re-render ediyordu. Uçak bırakıldığında ise Firebase'in `onValue` yankısı 1.500 uçuşu gereksiz yere baştan JSON-parse edip çift render yaratıyordu.
+   - **Çözüm:**
+     - `TimelineLane`'in `useDrop.collect` fonksiyonunda `canDrop` hesabı sadece fare o standın üzerindeyken (`isOver ? monitor.canDrop() : false`) çalışacak şekilde izole edildi. 249 pasif standın CPU harcaması sıfırlandı.
+     - `TimelineLane`, `FlightCard`, `FlightPool`, `TimelineHeader`, `ConcourseOccupancyBar` bileşenleri `React.memo` ile sarıldı.
+     - `MARS Conflict Shadow Overlay` hesaplaması 1.500 uçuşluk `.filter()` yerine `flightsByParkingPosition` üzerinden O(1) harita erişimine dönüştürüldü.
+     - `App.tsx` içine `isLocalUpdateRef` eklenerek yerel sürükle-bırak sonrasında Firebase'den dönen kendi güncellememizin gereksiz `JSON.parse` ve çift render yapması engellendi.
+8. **Fırsat Maliyetli Körük Optimizasyonu & En Uzunu Açığa İt Takası (23.10.2026):**
+   - **Sorun:** AI algoritması varış saatine göre greedy çalıştığı için körüklerde 8-25 saat yatan uçaklar (örneğin B16'da 25 saat yatan TK1361) stantları gün boyu rezerve ediyor, bu esnada açığa 40-50 dakikalık hızlı dönüşlü onlarca yolcu uçağı sürülüyordu. Ayrıca A2R'ye dar gövde konulduğu için A380 (Emirates EK124) açık pozisyona düşüyordu.
+   - **Çözüm:**
+     - **Yüksek Frekans Önceliği (High-Turnover First):** 60-150 dakikalık hızlı dönüşler körüklere İLK olarak örülür. Gündüz 3.5h ve genel 5h üzeri uzun yatışlar körüklerden tehir edilir (`Pass B.3`).
+     - **Stand A2 (Cat F / A380) Koruması:** Stand A2L ve A2R pozisyonlarına A380 slot penceresinde (±45 dk) dar gövde girişi kilitlendi.
+     - **1-to-N Eviction Swap (En Uzunu Açığa İt):** Pass F içine `EVICTION_SWAP` eklendi. Körükte 3 saatten uzun yatan bir uçak açığa alındığında onun bıraktığı pencereye $\ge 2$ adet kısa dönüşlü açık uçak sığıyorsa, uzun uçak açığa tahliye edilir ve yerine 2-7 adet kısa turnaround körüğe çekilir.
+     - **Otomatik Gate-Stand Eşitlemesi:** Stant atandıktan sonra Gate iskelesi Stand iskelesi ile otomatik senkronize edilerek %68.6'lık kapı uyumsuzluğu sıfırlandı.
+9. **GitHub & Canlı Dağıtım:**
+   - Dağıtım: `single_commit_push.js` scripti içinde `execSync('npx vercel --scope kraften-ambalaj --prod --yes')` ile otomatik olarak Vercel production ortamına (`https://gams-web-five.vercel.app`) aktarılmaktadır.
 
