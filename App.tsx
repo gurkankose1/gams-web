@@ -26,6 +26,7 @@ import AiAllocationReportModal, { AiReportData } from './components/AiAllocation
 import AiCopilotModal from './components/AiCopilotModal.tsx';
 import GeminiSettingsModal from './components/GeminiSettingsModal.tsx';
 import GeminiDeepThinkingModal from './components/GeminiDeepThinkingModal.tsx';
+import GeminiDeepPlanModal from './components/GeminiDeepPlanModal.tsx';
 import { getStoredApiKey } from './services/gemini-api.ts';
 import { database } from './firebase.ts';
 import { ref, onValue, set, update, remove } from 'firebase/database';
@@ -678,6 +679,7 @@ const App: React.FC<{ user: User }> = ({ user }) => {
     const [isAiReportModalOpen, setIsAiReportModalOpen] = useState(false);
     const [isCopilotOpen, setIsCopilotOpen] = useState(false);
     const [isGeminiThinkingOpen, setIsGeminiThinkingOpen] = useState(false);
+    const [isGeminiDeepPlanOpen, setIsGeminiDeepPlanOpen] = useState(false);
     const [isGeminiSettingsOpen, setIsGeminiSettingsOpen] = useState(false);
     const [geminiKeyActive, setGeminiKeyActive] = useState<boolean>(() => Boolean(getStoredApiKey()));
 
@@ -903,7 +905,7 @@ const App: React.FC<{ user: User }> = ({ user }) => {
 
                 const newHistoryEntry: FlightHistoryEntry = {
                     user: currentUser.username,
-                    action: `AI Senaryo 1 Planlama yapıldı (Köprü Oranı: %${stats.bridgeRate.toFixed(1)}, ${totalSwapsPerformed} akıllı takas).`,
+                    action: `AI Skor Planlama yapıldı (Köprü Oranı: %${stats.bridgeRate.toFixed(1)}, ${totalSwapsPerformed} akıllı takas).`,
                     timestamp: new Date()
                 };
 
@@ -937,7 +939,7 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                     });
                 }
 
-                setAllocationMessage(`🤖 AI Senaryo 1 Planlama Tamamlandı: %${stats.bridgeRate.toFixed(1)} Köprü Oranı (${stats.bridgeAssignedCount} / ${stats.eligibleFlightsCount} Yolcu Körükte, ${totalSwapsPerformed} Akıllı Takas)`);
+                setAllocationMessage(`⚡ AI Skor Planlama Tamamlandı: %${stats.bridgeRate.toFixed(1)} Köprü Oranı (${stats.bridgeAssignedCount} / ${stats.eligibleFlightsCount} Yolcu Körükte, ${totalSwapsPerformed} Akıllı Takas)`);
                 setTimeout(() => setAllocationMessage(null), 8000);
 
                 // Open AI Report Card Modal
@@ -1806,12 +1808,12 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                                         ? 'bg-purple-800 animate-pulse' 
                                         : 'bg-gradient-to-r from-purple-600 via-indigo-600 to-purple-600 hover:from-purple-500 hover:to-indigo-500 shadow-purple-600/30'
                                 }`}
-                                title="Senaryo 1: Maksimum köprü doluluğu odaklı otomatik yapay zeka planlaması"
+                                title="AI Skor Planla: Hızlı kural ve skor tabanlı deterministik köprü planlaması"
                             >
                                 <svg className={`w-3.5 h-3.5 text-purple-200 ${isAiAllocating ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
                                 </svg>
-                                {isAiAllocating ? 'AI Planlıyor...' : 'AI Planla: Senaryo 1 (Maksimum Köprü)'}
+                                {isAiAllocating ? 'Skor Planlanıyor...' : '⚡ AI Skor Planla'}
                             </button>
 
                             {/* 🟢 OCC AI CO-PİLOT (CANLI FIRSATLAR & GELİR) */}
@@ -1830,15 +1832,15 @@ const App: React.FC<{ user: User }> = ({ user }) => {
 
                             {/* 🧠 GEMINI DERİN DÜŞÜNEN AI (DEEP REASONING) */}
                             <button 
-                                onClick={() => setIsGeminiThinkingOpen(true)}
+                                onClick={() => setIsGeminiDeepPlanOpen(true)}
                                 disabled={flights.length === 0}
                                 className="flex items-center gap-1.5 px-3 py-1.5 font-semibold rounded-lg text-white shadow-md transition duration-200 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer select-none border border-purple-400/50 bg-gradient-to-r from-purple-700 via-indigo-600 to-pink-600 hover:from-purple-600 hover:to-indigo-500 shadow-purple-900/30"
                                 title="Gemini Derin Düşünce Modeli ile insan sezgisi ve çok adımlı takaslarla körük oranını maksimize et"
                             >
                                 <span className="text-sm animate-pulse">🧠</span>
-                                <span>Derin Düşünen AI</span>
+                                <span>AI Derin Planla</span>
                                 <span className="text-[10px] font-extrabold px-1.5 py-0.2 rounded bg-purple-300 text-gray-950 shadow-sm">
-                                    Gemini Pro
+                                    Sıfırdan
                                 </span>
                             </button>
 
@@ -2114,6 +2116,23 @@ const App: React.FC<{ user: User }> = ({ user }) => {
 
             <ExcelImportReportModal isOpen={isReportModalOpen} onClose={() => setReportModalOpen(false)} report={importReport} />
             <AiAllocationReportModal isOpen={isAiReportModalOpen} onClose={() => setIsAiReportModalOpen(false)} report={aiReportData} />
+            {isGeminiDeepPlanOpen && (
+                <ErrorBoundary fallbackTitle="AI Derin Planla Modalı Hatası">
+                    <GeminiDeepPlanModal
+                        isOpen={isGeminiDeepPlanOpen}
+                        onClose={() => setIsGeminiDeepPlanOpen(false)}
+                        flights={flights}
+                        currentStartDate={startDate}
+                        currentEndDate={endDate}
+                        maintenanceBlocks={maintenanceBlocks}
+                        onApplyPlan={handleCopilotUpdates}
+                        onOpenApiKeyModal={() => {
+                            setIsGeminiDeepPlanOpen(false);
+                            setIsGeminiSettingsOpen(true);
+                        }}
+                    />
+                </ErrorBoundary>
+            )}
             <AiCopilotModal isOpen={isCopilotOpen} onClose={() => setIsCopilotOpen(false)} flights={flights} maintenanceBlocks={maintenanceBlocks} onApplyUpdates={handleCopilotUpdates} />
             {isGeminiThinkingOpen && (
                 <ErrorBoundary fallbackTitle="Gemini Derin Düşünce Modalı Hatası">
