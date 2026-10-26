@@ -21,7 +21,7 @@ import CustomDragLayer from './components/CustomDragLayer.tsx';
 import HeaderRevenueSummary from './components/HeaderRevenueSummary.tsx';
 import BottomRevenueSummaryBar from './components/BottomRevenueSummaryBar.tsx';
 import { runAiBridgeAllocation, calculateBridgeUtilization, hasMaintenanceConflict } from './services/ai-allocator.ts';
-import { getAircraftCategory } from './services/ams-rules.ts';
+import { getAircraftCategory, isContactStand } from './services/ams-rules.ts';
 import AiAllocationReportModal, { AiReportData } from './components/AiAllocationReportModal.tsx';
 import AiCopilotModal from './components/AiCopilotModal.tsx';
 import GeminiSettingsModal from './components/GeminiSettingsModal.tsx';
@@ -252,8 +252,16 @@ const parseTurnaroundDataWithMapping = (rawData: any[], mapping: Mapping, startD
         const gate = arrGateStr || depGateStr || genGateStr || null;
 
         const generalPos = extractValidParkingPosition(m.parkingPosition ? row[m.parkingPosition] : null);
-        const arrPos = extractValidParkingPosition(m.arrParkingPosition ? row[m.arrParkingPosition] : null);
-        const depPos = extractValidParkingPosition(m.depParkingPosition ? row[m.depParkingPosition] : null);
+        const arrPos = extractValidParkingPosition(
+            m.arrParkingPosition ? row[m.arrParkingPosition] : (
+                row['Arr Stand'] || row['ArrStand'] || row['Arr Pos'] || row['ArrPos'] || row['Arr Park'] || row['ArrPark'] || row['Geliş Park']
+            )
+        );
+        const depPos = extractValidParkingPosition(
+            m.depParkingPosition ? row[m.depParkingPosition] : (
+                row['Dep Stand'] || row['DepStand'] || row['Dep Pos'] || row['DepPos'] || row['Dep Park'] || row['DepPark'] || row['Gidiş Park'] || row['Stand_1'] || row['Stand.1'] || row['Pos_1'] || row['Pos.1']
+            )
+        );
 
         // Case 1: Both arrival & departure dates exist -> Turnaround or split arrival/departure legs
         if (hasArrival && hasDeparture) {
@@ -288,6 +296,12 @@ const parseTurnaroundDataWithMapping = (rawData: any[], mapping: Mapping, startD
             };
 
             if (arrPos && depPos && arrPos !== depPos) {
+                const isArrContact = isContactStand(arrPos);
+                const isDepContact = isContactStand(depPos);
+                // Gerçek hayattaki AOG / Bakım / Çekilme (Körük-Açık veya Açık-Körük / Farklı Standlar)
+                // Bu uçuşlar operasyonel kilitlidir; AI Skor Planlama asla yerlerini değiştirmez.
+                const isTowedOrSplit = (isArrContact && !isDepContact) || (!isArrContact && isDepContact) || (arrPos !== depPos);
+
                 const arrivalLeg: Flight = {
                     ...baseFlightData,
                     id: `${arrivalFlightNumber || 'ARR'}-${arrival.toISOString()}-arr-${i}`,
@@ -297,6 +311,7 @@ const parseTurnaroundDataWithMapping = (rawData: any[], mapping: Mapping, startD
                     scheduledDeparture: new Date(arrival.getTime() + SINGLE_LEG_DURATION_MS),
                     isDomestic: isArrDom,
                     parkingPosition: shouldAssignInitialStand ? arrPos : null,
+                    isOperationalLocked: isTowedOrSplit ? true : undefined,
                 };
                 const departureLeg: Flight = {
                     ...baseFlightData,
@@ -307,6 +322,7 @@ const parseTurnaroundDataWithMapping = (rawData: any[], mapping: Mapping, startD
                     scheduledArrival: new Date(departure.getTime() - SINGLE_LEG_DURATION_MS),
                     isDomestic: isDepDom,
                     parkingPosition: shouldAssignInitialStand ? depPos : null,
+                    isOperationalLocked: isTowedOrSplit ? true : undefined,
                 };
                 return [arrivalLeg, departureLeg];
             } else {
@@ -520,6 +536,15 @@ const pairAndParseFlightData = (rawData: any[], startDate: Date, mapping: Mappin
                    }
                 }
                 
+                const arrPos = arrivalLeg.parkingPosition;
+                const depPos = departureLeg.parkingPosition;
+                const isDiffStands = arrPos && depPos && arrPos !== depPos;
+                const isOpLocked = isDiffStands && (
+                    (isContactStand(arrPos) && !isContactStand(depPos)) ||
+                    (!isContactStand(arrPos) && isContactStand(depPos)) ||
+                    (arrPos !== depPos)
+                );
+
                 flights.push({
                     id: `${arrivalLeg.flightNumber}-${arrivalLeg.time.toISOString()}-${flightCounter++}`,
                     type: 'turnaround',
@@ -537,6 +562,7 @@ const pairAndParseFlightData = (rawData: any[], startDate: Date, mapping: Mappin
                     departureMode: departureLeg.flightMode,
                     parkingPosition: arrivalLeg.parkingPosition,
                     gate: arrivalLeg.gate || departureLeg.gate || null,
+                    isOperationalLocked: isOpLocked ? true : undefined,
                     raw_data: { arrival: arrivalLeg.raw_data, departure: departureLeg.raw_data },
                     history: [],
                 });

@@ -75,7 +75,14 @@ const generateTooltipText = (flight: Flight, isOverridden: boolean): string => {
         emojiPrefix = `[${departureE}]`;
     }
 
-    let tooltip = isOverridden ? `[⚠️ AMS Kural İhlali (Esnetildi)]\n${emojiPrefix} ${getFlightDisplayText(flight)}\n` : `${emojiPrefix} ${getFlightDisplayText(flight)}\n`;
+    let tooltip = '';
+    if (flight.isOperationalLocked) {
+        tooltip += `🔒 [OPERASYONEL SABİT - AI DEĞİŞTİRMEZ (AOG / TOWING / SPLIT)]\n`;
+    }
+    if (isOverridden) {
+        tooltip += `[⚠️ AMS Kural İhlali (Esnetildi)]\n`;
+    }
+    tooltip += `${emojiPrefix} ${getFlightDisplayText(flight)}\n`;
     if (flight.departureMode) {
         tooltip += `Departure Mode: ${flight.departureMode}\n`;
     }
@@ -292,6 +299,7 @@ const FlightCard: React.FC<FlightCardProps> = ({
       <div className="flex items-center justify-between w-full px-2 text-xs font-bold text-white leading-tight">
         <span className="w-4 text-left flex-shrink-0">{startDisplay}</span>
         <span className="flex-grow text-center truncate px-1">
+          {flight.isOperationalLocked && <span className="text-amber-400 mr-1 font-black" title="Operasyonel Olarak Sabitlendi (AOG / Towing / Geliş-Gidiş Farklı Stand)">🔒</span>}
           {flight.isSuperSet && <span className="text-amber-300 mr-1 font-black" title="Super Set (Destinasyon Kuralı Askıda)">⚡</span>}
           {displayText}
         </span>

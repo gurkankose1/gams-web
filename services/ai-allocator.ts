@@ -134,6 +134,53 @@ export function isPassengerFlight(f: Flight): boolean {
     return true;
 }
 
+/**
+ * Operasyonel Sabit Uçuş Kontrolü (AOG / Towing / Geliş Körük - Gidiş Açık veya Açık-Körük)
+ * Gerçek hayatta meydana gelen teknik çekilmeleri ve sabitlenmiş operasyonları korur;
+ * AI Skor Planlama asla bu uçuşların standlarını değiştirmez, etrafından planlar.
+ */
+export function isOperationalLockedFlight(f: Flight): boolean {
+    if (f.isOperationalLocked === true) return true;
+    if (f.raw_data) {
+        const row = f.raw_data;
+        const arr = String(row['Arr Stand'] || row['ArrStand'] || row['Arr Pos'] || row['ArrPos'] || row['ArrPark'] || '').trim();
+        const dep = String(row['Dep Stand'] || row['DepStand'] || row['Dep Pos'] || row['DepPos'] || row['DepPark'] || row['Stand_1'] || row['Stand.1'] || '').trim();
+        if (arr && dep && arr !== dep) {
+            if ((isContactStand(arr) && !isContactStand(dep)) || (!isContactStand(arr) && isContactStand(dep))) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+/**
+ * Akşam Geniş Gövde Yatı Kuralı (15:00+ Geliş, 7-11h Yatı, Gece 00:00-04:30 Kalkış)
+ * Bu uçuşların köprüye planlanmasına İZİN VERİLİR fakat KESİNLİKLE SADECE STANDALONE
+ * köprülerde (D6-D17, B13-B17, F14-F18, A9) denenir. MARS Center standlarına asla verilmez!
+ */
+export function isEveningWidebodyLongStay(f: Flight): boolean {
+    const cat = f.acCategory || getAircraftCategory(f.aircraftType);
+    const isWide = cat === 'E' || cat === 'D' || cat === 'F';
+    if (!isWide) return false;
+
+    const arrMs = f.scheduledArrival.getTime();
+    const depMs = f.scheduledDeparture.getTime();
+    const durHours = (depMs - arrMs) / (60 * 60 * 1000);
+    if (durHours < 7.0 || durHours > 11.5) return false;
+
+    const arrHour = f.scheduledArrival.getHours();
+    const depHour = f.scheduledDeparture.getHours();
+
+    // Arrives at or after 15:00
+    if (arrHour < 15) return false;
+
+    // Departs at night / early morning between 00:00 and 04:30
+    if (depHour > 4 && depHour < 23) return false;
+
+    return true;
+}
+
 export function isFlightBridgeEligible(f: Flight): boolean {
     // Arrival-only bacaklar ATD bazlı kalkış planlamasına girmez
     if (f.type === 'arrival') return false;
@@ -502,6 +549,20 @@ export function runFromScratchAllocation(
     const topology = buildStandTopology(maintenanceBlocks);
     const flightUpdates = new Map<string, string | null>();
 
+    // 0. Operasyonel Sabit Uçuşları Önceden Kilitle (AOG / Towing / Split Legs)
+    // Bu uçuşlar gerçek hayattaki pozisyonlarını korur; AI asla yerlerini değiştirmez.
+    allFlights.forEach(f => {
+        if (isOperationalLockedFlight(f)) {
+            flightUpdates.set(f.id, f.parkingPosition || null);
+            if (f.parkingPosition && topology.has(f.parkingPosition)) {
+                const sched = topology.get(f.parkingPosition)!;
+                const arrMs = f.scheduledArrival.getTime();
+                const depMs = f.scheduledDeparture.getTime();
+                placeOnStand(sched, arrMs, depMs, f.id);
+            }
+        }
+    });
+
     // 1. Identify and categorize flights
     const eligibleFlights: Flight[] = [];
     const cargoFlights: Flight[] = [];
@@ -510,6 +571,9 @@ export function runFromScratchAllocation(
     const noAcFlights: Flight[] = [];
 
     allFlights.forEach(f => {
+        if (isOperationalLockedFlight(f)) {
+            return; // Önceden kilitlendi, planlamadan muaf
+        }
         if (isNoAcFlight(f)) {
             noAcFlights.push(f);
             flightUpdates.set(f.id, null); // Keep in pool!
@@ -545,6 +609,8 @@ export function runFromScratchAllocation(
     // Daytime long-stay threshold:
     // Flights staying > 3.5 hours during daytime (06:00 - 23:00) must not monopolize bridge gates
     const isDaytimeLongStay = (flight: Flight): boolean => {
+        if (isEveningWidebodyLongStay(flight)) return false; // Akşam 15:00+ gelen WB yatısı serbest
+
         const durHours = getDurationMins(flight) / 60;
         if (durHours <= 3.5) return false;
 
@@ -571,6 +637,12 @@ export function runFromScratchAllocation(
     });
 
     wideEligible.sort((a, b) => {
+        // Akşam 15:00+ gelen 8-10h yatılı WB uçakları standalone köprüleri değerlendirmek üzere öne alınır
+        const isEveA = isEveningWidebodyLongStay(a);
+        const isEveB = isEveningWidebodyLongStay(b);
+        if (isEveA && !isEveB) return -1;
+        if (!isEveA && isEveB) return 1;
+
         // For widebodies, short ground times (turnaround < 3 hours) are prioritized for bridge.
         const diffDur = getDurationMins(a) - getDurationMins(b);
         if (Math.abs(diffDur) > 60) return diffDur;
@@ -803,7 +875,8 @@ export function runFromScratchAllocation(
 
         // Rule 2: MARS Center Opportunity Cost Check:
         // Try MARS Center stands ONLY IF it doesn't block 2+ overflow narrowbodies!
-        if (!placed) {
+        // KRİTİK KURAL: Akşam 15:00+ gelen uzun yatılı WB uçakları MARS Center'a ASLA verilemez (sadece standalone)!
+        if (!placed && !isEveningWidebodyLongStay(flight)) {
             for (const sched of centerCandidateStands) {
                 if (canFitOnStand(sched, arrMs, depMs, true, topology, isHeavy)) {
                     // Check opportunity cost against narrowbodies waiting in overflowToRemote
@@ -1211,6 +1284,7 @@ export function runFromScratchAllocation(
         // --- SUB-PHASE 2: 1-to-N REPLACEMENT SWAP (Geriye Dönük Takas) ---
         // Look for flights currently on bridge stands that can be sent to remote to make room for >= 2 remote narrowbodies
         const currentBridgeFlights = eligibleFlights.filter(f => {
+            if (isOperationalLockedFlight(f) || isEveningWidebodyLongStay(f)) return false;
             const pos = flightUpdates.get(f.id);
             return pos && isContactStand(pos);
         });
@@ -1226,6 +1300,7 @@ export function runFromScratchAllocation(
         });
 
         for (const bridgeFlight of currentBridgeFlights) {
+            if (isOperationalLockedFlight(bridgeFlight) || isEveningWidebodyLongStay(bridgeFlight)) continue;
             const bridgePos = flightUpdates.get(bridgeFlight.id);
             if (!bridgePos || !isContactStand(bridgePos)) continue;
 
@@ -1504,6 +1579,19 @@ export function runPreserveAndElevateAllocation(
     const topology = buildStandTopology(maintenanceBlocks);
     const flightUpdates = new Map<string, string | null>();
 
+    // 0. Operasyonel Sabit Uçuşları Önceden Kilitle (AOG / Towing / Split Legs)
+    allFlights.forEach(f => {
+        if (isOperationalLockedFlight(f)) {
+            flightUpdates.set(f.id, f.parkingPosition || null);
+            if (f.parkingPosition && topology.has(f.parkingPosition)) {
+                const sched = topology.get(f.parkingPosition)!;
+                const arrMs = f.scheduledArrival.getTime();
+                const depMs = f.scheduledDeparture.getTime();
+                placeOnStand(sched, arrMs, depMs, f.id);
+            }
+        }
+    });
+
     const eligibleFlights: Flight[] = [];
     const cargoFlights: Flight[] = [];
     const gaFlights: Flight[] = [];
@@ -1511,6 +1599,9 @@ export function runPreserveAndElevateAllocation(
     const noAcFlights: Flight[] = [];
 
     allFlights.forEach(f => {
+        if (isOperationalLockedFlight(f)) {
+            return; // Önceden kilitlendi
+        }
         if (isNoAcFlight(f)) {
             noAcFlights.push(f);
             flightUpdates.set(f.id, null);
@@ -1686,11 +1777,14 @@ export function runPreserveAndElevateAllocation(
                     }
                 }
             }
-            for (const conc of allowedConc) {
-                for (const s of (CONCOURSE_LAYOUT[conc] || [])) {
-                    const sched = topology.get(s);
-                    if (sched && sched.isWideCompatible && sched.isMarsCenter) {
-                        candidateStands.push(sched);
+            // KRİTİK KURAL: Akşam 15:00+ gelen 8-10h yatılı WB uçakları MARS Center'a ASLA verilemez (sadece standalone)!
+            if (!isEveningWidebodyLongStay(flight)) {
+                for (const conc of allowedConc) {
+                    for (const s of (CONCOURSE_LAYOUT[conc] || [])) {
+                        const sched = topology.get(s);
+                        if (sched && sched.isWideCompatible && sched.isMarsCenter) {
+                            candidateStands.push(sched);
+                        }
                     }
                 }
             }
@@ -1724,6 +1818,7 @@ export function runPreserveAndElevateAllocation(
         let madeProgress = false;
 
         const currentBridgeFlights = eligibleFlights.filter(f => {
+            if (isOperationalLockedFlight(f) || isEveningWidebodyLongStay(f)) return false;
             const pos = flightUpdates.get(f.id);
             return pos && isContactStand(pos);
         });
@@ -1731,6 +1826,7 @@ export function runPreserveAndElevateAllocation(
         currentBridgeFlights.sort((a, b) => getDurationMins(b) - getDurationMins(a));
 
         for (const bridgeFlight of currentBridgeFlights) {
+            if (isOperationalLockedFlight(bridgeFlight) || isEveningWidebodyLongStay(bridgeFlight)) continue;
             const bridgePos = flightUpdates.get(bridgeFlight.id);
             if (!bridgePos || !isContactStand(bridgePos)) continue;
 

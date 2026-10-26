@@ -31,6 +31,7 @@ export interface Flight {
   mtow?: number;
   isSuperSet?: boolean;
   raw_data?: any;
+  isOperationalLocked?: boolean;
   history?: FlightHistoryEntry[];
 }
 

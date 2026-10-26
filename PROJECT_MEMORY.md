@@ -92,3 +92,13 @@
     - **AI Derin Planla (Otonom Sıfırdan Planlama):** Kullanıcının 'Hibrit istemiyorum, planlamayı komple kendisi sıfırdan yapmalı' talebi doğrultusunda, öneri sunmak yerine seçilen tarih aralığındaki tüm uçuşları sıfırdan otonom olarak stantlara dizen services/gemini-full-planner.ts ve components/GeminiDeepPlanModal.tsx geliştirildi.
     - **Operasyonel Dalga Tabanlı Dağıtım (Wave Scheduling):** 1000+ uçuş 4 saatlik zaman dilimlerine (dalgalara) ayrılarak Gemini LLM motoruna gönderilir; geniş gövdeler, MARS kilitleri ve iç/dış hat kuralları otonom olarak çözülüp doğrudan Gantt zaman çizelgesine yerleştirilir.
     - Canlıya alındı: https://gams-web-five.vercel.app
+
+14. **Operasyonel Kilit (AOG / Cekilme / Split Leg) & Aksam WB Standalone Koruk Kurali (26.10.2026):**
+    - **AOG / Cekilme Ucuslarinin Sabitlenmesi (isOperationalLocked):**
+      - Gercek hayatta kopruye gelip AOG olan ve aciga cekilen (gelisi koruk, gidisi acik) veya acikta yatip korukten kalkan (gelisi acik, gidisi koruk) ucaklar ile gelis ve gidis park pozisyonu farkli olan ucuslar isOperationalLocked: true olarak isaretlendi.
+      - Zaman cizelgesinde bu ucuslarin kartlarina kilit rozeti ve ozel aciklama eklendi.
+      - AI Skor Planlama motoru (services/ai-allocator.ts), bu ucuslari onceden topolojiye rezerve eder, asla yerlerini degistirmez, aciga surmez veya takaslarda tahliye etmez. Tum diger ucuslar bu sabit operasyonel ucuslarin etrafinda sekillenir.
+    - **Aksam 15:00+ Genis Govde (WB) 8-10h Yati Istisnasi (isEveningWidebodyLongStay):**
+      - Aksam 15:00 ve sonrasinda gelen, 7-11 saat (ortalama 8-10 saat) kalan ve gece 00:00 - 04:30 arasi kalkan genis govdeli ucaklar (B77W, B789, A350 vb.) icin kopruye planlama denemesi acildi.
+      - **Yalnizca Standalone Kopru Sarti:** Bu ucuslar KESINLIKLE MARS Center stantlarina (altinda L/R dar govde alt stantlari olan stantlar) verilemez; dar govde kapasitesini oldurmemek icin YALNIZCA bagimsiz standalone genis govde stantlarina (Concourse D: D6-D17, Concourse B: B13-B17, Concourse F: F14-F18, Concourse A: A9) planlanir.
+      - Pass F (takas ve tahliye) motorunda da korunarak aciga dusurulmeleri engellendi.
