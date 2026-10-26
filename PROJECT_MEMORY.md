@@ -78,3 +78,11 @@
    - **Otomatik Excel Yüklemesi Kuralı:** Excel dosyasından uçuş listesi yüklendiğinde, tescili olmayan (`!regNo` veya `DUMMY`, `NONE`, `ER`, `TBA`) uçaklar otomatik olarak standa atanmaz (`parkingPosition: null`) ve havuzda bekletilir.
    - **Moldova ve Yabancı Tescil Düzeltmesi:** Önceden `startsWith('ER')` kontrolü yüzünden Moldova tescilli (`ER00011`, `ERSKY`, `ER00005` vb.) gerçek havayolu uçakları yanlışlıkla tescilsiz (ER/) olarak etiketleniyordu. Bu kontrol `isFlightUnregistered` fonksiyonu ile sadece `"ER"`, `"ER/"`, `"DUMMY"`, `"TBA"` gibi gerçek sahte/boş değerleri filtreleyecek şekilde düzeltildi; gerçek tesciller korundu.
    - **AI Planlama Entegrasyonu:** Kullanıcı "AI Planla" butonuna bastığında, havuzda tescilsiz olarak bekleyen uçaklar dahi olsa, eğer Excel dosyasında sisteme tanımlı bir uçak tipi (`aircraftType`) veya tescil bilgisi (`regNo`) varsa, AI algoritması (`services/ai-allocator.ts`) bu uçakları yok saymaz; `isNoAcFlight` filtresinden geçirerek uygun körüklü veya açık pozisyonlara atamasını gerçekleştirir.
+
+12. **Gemini Derin Düşünce Optimizasyonu & Kişisel API Key Entegrasyonu (26.10.2026):**
+    - Kullanıcının Google Pro / AI Studio üzerinden aldığı kişisel API Key'ini (gams_gemini_api_key) tarayıcı yerel belleğinde (localStorage) saklayan ve yöneten services/gemini-api.ts ve components/GeminiSettingsModal.tsx geliştirildi.
+    - GitHub Secret Scanning kurallarına tam uyum için kod tabanında hiçbir API Key açıkta bırakılmadı; istemci taraflı güvenli konfigürasyon sağlandı.
+    - Google Generative Language API ile doğrudan haberleşen, gemini-3.6-flash, gemini-3.5-flash, gemini-3.8-flash modellerini destekleyen ve canlı ping/gecikme testi sunan ayar paneli kuruldu.
+    - Klasik deterministik açgözlü kuralların ötesine geçen; açığa atılmış geniş gövdeleri, MARS kilitlerini ve atıl körük ceplerini tespit edip dispeçer aklıyla çok adımlı takas zincirleri kuran components/GeminiDeepThinkingModal.tsx arayüze entegre edildi.
+    - Önerilen tüm takaslar uygulanmadan önce GAMS AMS kuralları, Cat F A2 kısıtı ve bakım takvimi ile otomatik doğrulanır.
+    - Vercel production ortamına başarıyla dağıtıldı (https://gams-web-five.vercel.app).
