@@ -181,8 +181,30 @@ return (
                                     "{testResult.reply}"
                                 </div>
                             ) : (
-                                <div>
-                                    Hata: {testResult.error}
+                                <div className="space-y-2">
+                                    <div>Hata: {testResult.error}</div>
+                                    {(testResult.error?.includes('high demand') || testResult.error?.includes('503')) && (
+                                        <div className="p-2.5 bg-amber-950/60 border border-amber-600/50 rounded-lg text-amber-200 text-xs">
+                                            <div className="font-bold flex items-center gap-1.5 text-amber-300">
+                                                <span>ℹ️</span>
+                                                <span>Google Sunucularında Yoğunluk</span>
+                                            </div>
+                                            <p className="mt-1 text-[11px] text-amber-200/90 leading-relaxed">
+                                                Google, <strong>{testResult.model}</strong> için şu an geçici bir talep yoğunluğu bildiriyor.
+                                                Kesintisiz çalışmak için en kararlı model olan <strong>Gemini Flash Lite</strong>'ı seçebilirsiniz:
+                                            </p>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setSelectedModel('gemini-flash-lite-latest');
+                                                    setStoredModel('gemini-flash-lite-latest');
+                                                }}
+                                                className="mt-2 px-3 py-1 bg-amber-500 hover:bg-amber-400 text-gray-950 font-bold rounded text-xs transition"
+                                            >
+                                                👉 Gemini Flash Lite Modelini Seç
+                                            </button>
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </div>

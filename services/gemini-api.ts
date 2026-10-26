@@ -17,13 +17,13 @@ import {
 export const STORAGE_KEY_API = 'gams_gemini_api_key';
 export const STORAGE_KEY_MODEL = 'gams_gemini_model';
 export const DEFAULT_API_KEY = '';
-export const DEFAULT_MODEL = 'gemini-3.6-flash';
+export const DEFAULT_MODEL = 'gemini-flash-lite-latest';
 
 export const AVAILABLE_MODELS = [
-    { id: 'gemini-3.6-flash', name: 'Gemini 3.6 Flash (Önerilen - Hızlı & Zeki Düşünce)', recommended: true },
-    { id: 'gemini-3.5-flash', name: 'Gemini 3.5 Flash (Yüksek Kararlılık)', recommended: false },
-    { id: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash (Deneysel Derin Akıl Yürütme)', recommended: false },
-    { id: 'gemini-flash-lite-latest', name: 'Gemini Flash Lite (Ultra Hızlı)', recommended: false },
+    { id: 'gemini-flash-lite-latest', name: 'Gemini Flash Lite (Önerilen - Kesintisiz & Hızlı)', recommended: true },
+    { id: 'gemini-3.6-flash', name: 'Gemini 3.6 Flash (Gelişmiş Akıl Yürütme)', recommended: false },
+    { id: 'gemini-3.5-flash-lite', name: 'Gemini 3.5 Flash Lite (Yüksek Kararlılık)', recommended: false },
+    { id: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash (Deneysel - Google Sunucularında Yoğunluk Olabilir)', recommended: false },
 ];
 
 export function getStoredApiKey(): string {
@@ -247,7 +247,7 @@ export function extractApronBottlenecks(flights: Flight[], maintenanceBlocks?: M
 }
 
 /**
- * Runs the Gemini Deep Thinking Optimization Engine.
+ * Runs the Gemini Deep Thinking Optimization Engine with automatic fallback.
  */
 export async function runGeminiDeepThinkingOptimization(
     flights: Flight[],
@@ -258,7 +258,11 @@ export async function runGeminiDeepThinkingOptimization(
     if (!key || key.trim() === '') {
         throw new Error('Gemini API anahtarı tanımlanmamış. Lütfen sağ üstteki "🔑 API Key" butonuna tıklayarak Google Pro anahtarınızı kaydedin.');
     }
-    const model = getStoredModel();
+
+    const preferredModel = getStoredModel();
+    // Build list of models to try in case preferred model has high demand
+    const fallbackList = ['gemini-flash-lite-latest', 'gemini-3.6-flash', 'gemini-3.5-flash-lite'];
+    const modelsToTry = [preferredModel, ...fallbackList.filter(m => m !== preferredModel)];
 
     onProgress?.('Apron darboğazları ve açığa atılmış geniş gövdeler taranıyor...');
     const bottlenecks = extractApronBottlenecks(flights, maintenanceBlocks);
@@ -267,8 +271,6 @@ export async function runGeminiDeepThinkingOptimization(
     const eligibleFlights = flights.filter(isFlightBridgeEligible);
     const currentBridgeCount = eligibleFlights.filter(f => f.parkingPosition && isContactStand(f.parkingPosition)).length;
     const initialBridgeRate = eligibleFlights.length > 0 ? (currentBridgeCount / eligibleFlights.length) * 100 : 0;
-
-    onProgress?.(`Gemini ${model} derin akıl yürütme motoruna bağlanılıyor...`);
 
     // Prepare concise prompt context for Gemini
     const candidateFlightsPrompt = bottlenecks.remoteWidebodies.slice(0, 10).map(f => ({
@@ -338,154 +340,175 @@ Mevcut Köprü Oranı: %${initialBridgeRate.toFixed(1)}.
 Lütfen körük kullanım oranını artıracak en akıllıca ve kurallara uygun 3 ila 8 adet takas önerisi kurgula.
 `;
 
-    try {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`;
-        const payload = {
-            systemInstruction: {
-                parts: [{ text: systemInstruction }]
-            },
-            contents: [
-                {
-                    parts: [{ text: userPrompt }]
-                }
-            ],
-            generationConfig: {
-                responseMimeType: 'application/json',
-                temperature: 0.2
-            }
-        };
+    let activeModel = preferredModel;
+    let rawText = '';
 
-        onProgress?.('Gemini stratejik takas zincirlerini derinlemesine hesaplıyor...');
-
-        const response = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        });
-
-        if (!response.ok) {
-            const errBody = await response.json().catch(() => ({}));
-            throw new Error(errBody.error?.message || `Gemini API Hatası: HTTP ${response.status}`);
-        }
-
-        const data = await response.json();
-        const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '{}';
-
-        // Parse JSON safely
-        let parsed: any;
+    // Loop through fallback models if needed
+    for (const modelToTry of modelsToTry) {
         try {
-            parsed = JSON.parse(rawText);
-        } catch {
-            const cleanText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
-            parsed = JSON.parse(cleanText);
-        }
-
-        onProgress?.('Önerilen takaslar GAMS kural motoru ve bakım takvimi ile doğrulanıyor...');
-
-        // Validate each recommended swap
-        const validatedSwaps: DeepThinkingSwap[] = [];
-        const recommendedSwaps = parsed.recommendedSwaps || [];
-
-        for (const rawSwap of recommendedSwaps) {
-            const flight = flights.find(f => f.id === rawSwap.flightId || getCallsign(f) === rawSwap.callsign);
-            if (!flight) continue;
-
-            const targetStand = String(rawSwap.targetStand).trim();
-            const fromStand = flight.parkingPosition || 'REMOTE';
-
-            // Validate against rules
-            let ruleCompliant = true;
-            let rejectionReason: string | undefined;
-
-            // 1. Stand exists & physical compatibility
-            const sched = bottlenecks.topology.get(targetStand);
-            if (!sched) {
-                ruleCompliant = false;
-                rejectionReason = `Stant ${targetStand} havalimanı haritasında tanımlı değil.`;
-            } else if (!isContactStand(targetStand)) {
-                ruleCompliant = false;
-                rejectionReason = `Hedef stant ${targetStand} körük pozisyonu değil.`;
-            } else {
-                const fit = canFitOnStand(
-                    sched,
-                    flight.scheduledArrival.getTime(),
-                    flight.scheduledDeparture.getTime(),
-                    isWide(flight),
-                    bottlenecks.topology,
-                    isHeavy(flight)
-                );
-                if (!fit) {
-                    ruleCompliant = false;
-                    rejectionReason = `${flight.aircraftType} gövde tipi stant ${targetStand} kısıtlarına sığmıyor.`;
+            onProgress?.(`Gemini ${modelToTry} modeline bağlanılıyor...`);
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelToTry}:generateContent?key=${encodeURIComponent(key)}`;
+            const payload = {
+                systemInstruction: {
+                    parts: [{ text: systemInstruction }]
+                },
+                contents: [
+                    {
+                        parts: [{ text: userPrompt }]
+                    }
+                ],
+                generationConfig: {
+                    responseMimeType: 'application/json',
+                    temperature: 0.2
                 }
-            }
+            };
 
-            // 2. Maintenance conflict
-            if (ruleCompliant && maintenanceBlocks && maintenanceBlocks.length > 0) {
-                if (hasMaintenanceConflict(targetStand, flight.scheduledArrival, flight.scheduledDeparture, maintenanceBlocks)) {
-                    ruleCompliant = false;
-                    rejectionReason = `Stant ${targetStand} üzerinde bu saat diliminde planlı bakım bloğu var.`;
-                }
-            }
-
-            // 3. Time overlap check with already placed flights on target stand
-            if (ruleCompliant && sched) {
-                const arrTime = flight.scheduledArrival.getTime();
-                const depTime = flight.scheduledDeparture.getTime();
-                const bufferMs = 15 * 60 * 1000;
-
-                const overlap = sched.intervals.some(existing => {
-                    if (existing.flightId === flight.id) return false;
-                    return (arrTime < existing.end + bufferMs) && (depTime + bufferMs > existing.start);
-                });
-
-                if (overlap) {
-                    ruleCompliant = false;
-                    rejectionReason = `Stant ${targetStand} üzerinde başka bir uçuşla zaman çakışması tespit edildi.`;
-                }
-            }
-
-            validatedSwaps.push({
-                id: `gemini-swap-${flight.id}-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-                flightId: flight.id,
-                callsign: getCallsign(flight),
-                aircraftType: flight.aircraftType || 'A320',
-                isWideBody: isWide(flight),
-                fromStand,
-                toStand: targetStand,
-                strategyType: rawSwap.strategyType || 'WIDEBODY_ELEVATION',
-                reason: rawSwap.reason || 'Körük kullanım verimliliğini artırmak amacıyla optimize edildi.',
-                ruleCompliant,
-                rejectionReason,
-                estimatedPaxGain: rawSwap.estimatedPaxGain || (isWide(flight) ? 280 : 160),
-                arrivalFormatted: formatHHMM(flight.scheduledArrival),
-                departureFormatted: formatHHMM(flight.scheduledDeparture)
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
             });
+
+            if (!response.ok) {
+                const errBody = await response.json().catch(() => ({}));
+                const errMsg = errBody.error?.message || `HTTP ${response.status}`;
+                // Check if it is a high demand / rate limit issue to try fallback
+                if (errMsg.includes('high demand') || response.status === 503 || response.status === 429) {
+                    onProgress?.(`⚠️ ${modelToTry} yoğunluk yaşıyor, alternatif modele geçiliyor...`);
+                    continue;
+                }
+                throw new Error(errMsg);
+            }
+
+            const data = await response.json();
+            rawText = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '{}';
+            activeModel = modelToTry;
+            break; // Succeeded!
+        } catch (err: any) {
+            const msg = err.message || '';
+            if (msg.includes('Failed to fetch') || msg.includes('high demand') || msg.includes('503')) {
+                onProgress?.(`⚠️ ${modelToTry} geçici olarak meşgul, yedek modele geçiliyor...`);
+                continue;
+            }
+            throw err;
+        }
+    }
+
+    if (!rawText) {
+        throw new Error('Google Gemini modelleri şu anda yoğun talep altında. Lütfen birkaç saniye sonra tekrar deneyiniz veya Ayarlar menüsünden Gemini Flash Lite modelini seçiniz.');
+    }
+
+    // Parse JSON safely
+    let parsed: any;
+    try {
+        parsed = JSON.parse(rawText);
+    } catch {
+        const cleanText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
+        parsed = JSON.parse(cleanText);
+    }
+
+    onProgress?.('Önerilen takaslar GAMS kural motoru ve bakım takvimi ile doğrulanıyor...');
+
+    // Validate each recommended swap
+    const validatedSwaps: DeepThinkingSwap[] = [];
+    const recommendedSwaps = parsed.recommendedSwaps || [];
+
+    for (const rawSwap of recommendedSwaps) {
+        const flight = flights.find(f => f.id === rawSwap.flightId || getCallsign(f) === rawSwap.callsign);
+        if (!flight) continue;
+
+        const targetStand = String(rawSwap.targetStand).trim();
+        const fromStand = flight.parkingPosition || 'REMOTE';
+
+        // Validate against rules
+        let ruleCompliant = true;
+        let rejectionReason: string | undefined;
+
+        // 1. Stand exists & physical compatibility
+        const sched = bottlenecks.topology.get(targetStand);
+        if (!sched) {
+            ruleCompliant = false;
+            rejectionReason = `Stant ${targetStand} havalimanı haritasında tanımlı değil.`;
+        } else if (!isContactStand(targetStand)) {
+            ruleCompliant = false;
+            rejectionReason = `Hedef stant ${targetStand} körük pozisyonu değil.`;
+        } else {
+            const fit = canFitOnStand(
+                sched,
+                flight.scheduledArrival.getTime(),
+                flight.scheduledDeparture.getTime(),
+                isWide(flight),
+                bottlenecks.topology,
+                isHeavy(flight)
+            );
+            if (!fit) {
+                ruleCompliant = false;
+                rejectionReason = `${flight.aircraftType} gövde tipi stant ${targetStand} kısıtlarına sığmıyor.`;
+            }
         }
 
-        const validCount = validatedSwaps.filter(s => s.ruleCompliant).length;
-        const projectedBridgeCount = currentBridgeCount + validCount;
-        const projectedBridgeRate = eligibleFlights.length > 0 ? (projectedBridgeCount / eligibleFlights.length) * 100 : initialBridgeRate;
+        // 2. Maintenance conflict
+        if (ruleCompliant && maintenanceBlocks && maintenanceBlocks.length > 0) {
+            if (hasMaintenanceConflict(targetStand, flight.scheduledArrival, flight.scheduledDeparture, maintenanceBlocks)) {
+                ruleCompliant = false;
+                rejectionReason = `Stant ${targetStand} üzerinde bu saat diliminde planlı bakım bloğu var.`;
+            }
+        }
 
-        onProgress?.('Analiz tamamlandı!');
+        // 3. Time overlap check with already placed flights on target stand
+        if (ruleCompliant && sched) {
+            const arrTime = flight.scheduledArrival.getTime();
+            const depTime = flight.scheduledDeparture.getTime();
+            const bufferMs = 15 * 60 * 1000;
 
-        return {
-            executiveSummary: parsed.executiveSummary || `Gemini optimizasyonu tamamlandı. ${validCount} adet yeni körük ataması doğrulandı.`,
-            reasoningThoughts: parsed.reasoningThoughts || [
-                'Uçuşların yer kalış süreleri ve gövde tipleri analiz edildi.',
-                'Açığa park edilmiş geniş gövdeler için müsait körük cepleri bulundu.',
-                'Tüm AMS ve bakım kuralları denetlendi.'
-            ],
-            swaps: validatedSwaps,
-            initialBridgeRate,
-            projectedBridgeRate,
-            netBridgeGainCount: validCount,
-            modelUsed: model
-        };
+            const overlap = sched.intervals.some(existing => {
+                if (existing.flightId === flight.id) return false;
+                return (arrTime < existing.end + bufferMs) && (depTime + bufferMs > existing.start);
+            });
 
-    } catch (err: any) {
-        throw new Error(`Gemini Optimizasyon Hatası: ${err.message}`);
+            if (overlap) {
+                ruleCompliant = false;
+                rejectionReason = `Stant ${targetStand} üzerinde başka bir uçuşla zaman çakışması tespit edildi.`;
+            }
+        }
+
+        validatedSwaps.push({
+            id: `gemini-swap-${flight.id}-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+            flightId: flight.id,
+            callsign: getCallsign(flight),
+            aircraftType: flight.aircraftType || 'A320',
+            isWideBody: isWide(flight),
+            fromStand,
+            toStand: targetStand,
+            strategyType: rawSwap.strategyType || 'WIDEBODY_ELEVATION',
+            reason: rawSwap.reason || 'Körük kullanım verimliliğini artırmak amacıyla optimize edildi.',
+            ruleCompliant,
+            rejectionReason,
+            estimatedPaxGain: rawSwap.estimatedPaxGain || (isWide(flight) ? 280 : 160),
+            arrivalFormatted: formatHHMM(flight.scheduledArrival),
+            departureFormatted: formatHHMM(flight.scheduledDeparture)
+        });
     }
+
+    const validCount = validatedSwaps.filter(s => s.ruleCompliant).length;
+    const projectedBridgeCount = currentBridgeCount + validCount;
+    const projectedBridgeRate = eligibleFlights.length > 0 ? (projectedBridgeCount / eligibleFlights.length) * 100 : initialBridgeRate;
+
+    onProgress?.('Analiz tamamlandı!');
+
+    return {
+        executiveSummary: parsed.executiveSummary || `Gemini optimizasyonu tamamlandı. ${validCount} adet yeni körük ataması doğrulandı.`,
+        reasoningThoughts: parsed.reasoningThoughts || [
+            'Uçuşların yer kalış süreleri ve gövde tipleri analiz edildi.',
+            'Açığa park edilmiş geniş gövdeler için müsait körük cepleri bulundu.',
+            'Tüm AMS ve bakım kuralları denetlendi.'
+        ],
+        swaps: validatedSwaps,
+        initialBridgeRate,
+        projectedBridgeRate,
+        netBridgeGainCount: validCount,
+        modelUsed: activeModel
+    };
 }
 
 /**
