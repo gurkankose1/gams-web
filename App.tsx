@@ -1860,7 +1860,7 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                         </div>
 
                         {/* Financial Revenue Summary */}
-                        <HeaderRevenueSummary flights={flights} />
+                        <HeaderRevenueSummary flights={flights} startDate={startDate} endDate={endDate} />
 
                         {/* Bridge Utilization Rate KPI Badge */}
                         {flights.length > 0 && (
@@ -2537,7 +2537,7 @@ const App: React.FC<{ user: User }> = ({ user }) => {
             </div>
 
             {/* Bottom Revenue Summary Bar */}
-            <BottomRevenueSummaryBar flights={flights} />
+            <BottomRevenueSummaryBar flights={flights} startDate={startDate} endDate={endDate} />
         </div>
     );
 };

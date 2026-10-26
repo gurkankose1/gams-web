@@ -125,3 +125,13 @@
     - **Sorun:** Ornegin A3L stantina ust uste 45 dk arayla 2 ucak (TG5420 ve TK0315) dizilirken, ayni saat diliminde ikiz kardes pozisyon A3R tamamen bos kaliyordu.
     - **Ilk Yerlesim Dengelemesi (Pass A):** A3L ve A3R arasinda secim yapilirken currentLoad (mevcut ucus adedi) kriteri eklendi. Biri bosken digerine ust uste ucak yigilmasi engellendi; ucuslar L ve R kardes stantlara esit dagitilir.
     - **Pass G Gelistirmesi:** Kritik tampon esigi 25 dakikadan 75 dakikaya cikarildi ve MARS Ikiz Kardes Stand onceligi eklendi. A3L'de araligi 75 dk altinda kalan bir ucus varsa ve A3R bossa, ucus aninda A3R'ye kaydirilarak her iki stantta da 2-3 saatlik devasa guvenli tamponlar olusturulur.
+
+18. **Kalkış ve Seçili Tarih Aralığı Odaklı Dinamik Gelir Hesabı (26.10.2026):**
+    - **Kullanıcı Talebi:** Sağ alttaki "Mevcut Plan Toplam Gelir" barı ve üst header gelir özeti, hangi tarih aralığı seçiliyse sadece o tarihte giden (kalkış yapan) uçakları toplayarak hesaplasın. Ertesi güne sarkan uçuşlar ertesi gün değerlendirilsin; 1 aylık plan seçiliyse 1 aylık, 1 günlük seçiliyse o günü göstersin.
+    - **Kalkış Odaklı Filtreleme:**
+      - `BottomRevenueSummaryBar.tsx` ve `HeaderRevenueSummary.tsx` bileşenleri `startDate` ve `endDate` parametrelerini alacak şekilde güncellendi.
+      - Sadece atanmış uçuşlar (`parkingPosition` veya `gate` mevcut olanlar) hesaba dahil edilir.
+      - Tek bacak geliş uçuşları (`flight.type === 'arrival'`) gerçek bir kalkış içermediği için kalkış geliri sayımından hariç tutulur.
+      - Uçuşun kalkış zamanı (`scheduledDeparture`), seçili `[startDate, endDate]` zaman penceresinde değilse gelire eklenmez. Gece yarısından sonra ertesi güne sarkan uçuşlar gerçek kalkış günlerinde değerlendirilir.
+    - **Görsel Rozet ve Göstergeler:**
+      - Alt gelir çubuğunun sağ tarafındaki "PLANLI TOPLAM GELİR" kutucuğuna ve sol istatistik rozetine seçili periyodu anlık gösteren dinamik tarih etiketi eklendi (`📅 26 Eki` veya `📅 01 Eki - 31 Eki`).
