@@ -10,6 +10,7 @@ import FlightHistoryModal from './components/FlightHistoryModal.tsx';
 import FlightTrackingModal from './components/FlightTrackingModal.tsx';
 import MaintenanceModal from './components/MaintenanceModal.tsx';
 import MaintenanceImportModal from './components/MaintenanceImportModal.tsx';
+import ErrorBoundary from './components/ErrorBoundary.tsx';
 import ExcelErrorModal from './components/ExcelErrorModal.tsx';
 import ExcelImportReportModal, { ImportReport } from './components/ExcelImportReportModal.tsx';
 import MaintenanceManagementModal from './components/MaintenanceManagementModal.tsx';
@@ -2083,12 +2084,16 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                 onOpenImport={() => setMaintenanceImportModalOpen(true)}
                 onClearAll={handleClearAllMaintenance}
             />
-            <MaintenanceImportModal
-                isOpen={isMaintenanceImportModalOpen}
-                onClose={() => setMaintenanceImportModalOpen(false)}
-                existingBlocks={maintenanceBlocks}
-                onImport={handleImportMaintenanceBlocks}
-            />
+            {isMaintenanceImportModalOpen && (
+                <ErrorBoundary fallbackTitle="Bakım İçe Aktarma Modalı Hatası">
+                    <MaintenanceImportModal
+                        isOpen={isMaintenanceImportModalOpen}
+                        onClose={() => setMaintenanceImportModalOpen(false)}
+                        existingBlocks={maintenanceBlocks}
+                        onImport={handleImportMaintenanceBlocks}
+                    />
+                </ErrorBoundary>
+            )}
             
             {gateAssignmentFlight && (
                 <GateAssignmentModal

@@ -17,7 +17,7 @@ interface ParsedMaintenanceCandidate {
 interface MaintenanceImportModalProps {
     isOpen: boolean;
     onClose: () => void;
-    existingBlocks: MaintenanceBlock[];
+    existingBlocks?: MaintenanceBlock[];
     onImport: (newBlocks: MaintenanceBlock[]) => void;
 }
 
@@ -130,9 +130,10 @@ const formatDateDisplay = (d: Date): string => {
 const MaintenanceImportModal: React.FC<MaintenanceImportModalProps> = ({
     isOpen,
     onClose,
-    existingBlocks,
+    existingBlocks = [],
     onImport
 }) => {
+    // ALL HOOKS DECLARED UNCONDITIONALLY AT THE TOP LEVEL
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [fileName, setFileName] = useState<string>('');
     const [isParsing, setIsParsing] = useState<boolean>(false);
@@ -143,7 +144,83 @@ const MaintenanceImportModal: React.FC<MaintenanceImportModalProps> = ({
     const [selectedCategories, setSelectedCategories] = useState<Set<string>>(new Set());
     const [searchCategory, setSearchCategory] = useState<string>('');
 
-    // Reset when modal closes
+    // Deduplication keys for existing blocks
+    const existingKeys = useMemo(() => {
+        return new Set(
+            (existingBlocks || []).map(b => {
+                const pos = b?.parkingPosition ? String(b.parkingPosition).trim().toUpperCase() : '';
+                const startMs = b?.startTime ? new Date(b.startTime).getTime() : 0;
+                const endMs = b?.endTime ? new Date(b.endTime).getTime() : 0;
+                const rsn = b?.reason ? String(b.reason).trim().toUpperCase() : '';
+                return `${pos}|${startMs}|${endMs}|${rsn}`;
+            })
+        );
+    }, [existingBlocks]);
+
+    // Unique dates with counts
+    const dateOptions = useMemo(() => {
+        const counts: Record<string, { display: string; count: number; dateObj: Date }> = {};
+        allParsedCandidates.forEach(c => {
+            if (c.isDuplicateInFile) return;
+            if (!counts[c.dateKey]) {
+                counts[c.dateKey] = {
+                    display: c.dateDisplay,
+                    count: 0,
+                    dateObj: c.startTime
+                };
+            }
+            counts[c.dateKey].count++;
+        });
+
+        return Object.entries(counts)
+            .map(([key, data]) => ({
+                key,
+                display: data.display,
+                count: data.count,
+                dateObj: data.dateObj
+            }))
+            .sort((a, b) => a.key.localeCompare(b.key));
+    }, [allParsedCandidates]);
+
+    // Unique categories with counts
+    const categoryOptions = useMemo(() => {
+        const counts: Record<string, number> = {};
+        allParsedCandidates.forEach(c => {
+            if (c.isDuplicateInFile) return;
+            counts[c.reason] = (counts[c.reason] || 0) + 1;
+        });
+
+        return Object.entries(counts)
+            .map(([category, count]) => ({ category, count }))
+            .sort((a, b) => b.count - a.count);
+    }, [allParsedCandidates]);
+
+    // Filter categories by search
+    const filteredCategoryOptions = useMemo(() => {
+        if (!searchCategory.trim()) return categoryOptions;
+        const q = searchCategory.toLowerCase();
+        return categoryOptions.filter(c => c.category.toLowerCase().includes(q));
+    }, [categoryOptions, searchCategory]);
+
+    // Filtered candidates ready to be imported
+    const importableCandidates = useMemo(() => {
+        return allParsedCandidates.filter(c =>
+            !c.isDuplicateInFile &&
+            !c.isAlreadyInSystem &&
+            selectedDates.has(c.dateKey) &&
+            selectedCategories.has(c.reason)
+        );
+    }, [allParsedCandidates, selectedDates, selectedCategories]);
+
+    const duplicateCount = useMemo(() => {
+        return allParsedCandidates.filter(c => c.isDuplicateInFile).length;
+    }, [allParsedCandidates]);
+
+    const alreadyInSystemCount = useMemo(() => {
+        return allParsedCandidates.filter(c => !c.isDuplicateInFile && c.isAlreadyInSystem).length;
+    }, [allParsedCandidates]);
+
+    // Handlers
     const handleClose = () => {
         setFileName('');
         setIsParsing(false);
@@ -154,15 +231,6 @@ const MaintenanceImportModal: React.FC<MaintenanceImportModalProps> = ({
         setSearchCategory('');
         onClose();
     };
-
-    if (!isOpen) return null;
-
-    // Build deduplication key for existing blocks
-    const existingKeys = new Set(
-        existingBlocks.map(b =>
-            `${b.parkingPosition.trim().toUpperCase()}|${new Date(b.startTime).getTime()}|${new Date(b.endTime).getTime()}|${b.reason.trim().toUpperCase()}`
-        )
-    );
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -319,7 +387,6 @@ const MaintenanceImportModal: React.FC<MaintenanceImportModalProps> = ({
                 }
 
                 setAllParsedCandidates(candidates);
-                // By default, select all detected dates and categories
                 setSelectedDates(new Set(dateSet));
                 setSelectedCategories(new Set(categorySet));
                 setIsParsing(false);
@@ -333,70 +400,6 @@ const MaintenanceImportModal: React.FC<MaintenanceImportModalProps> = ({
         reader.readAsArrayBuffer(file);
     };
 
-    // Calculate unique dates with counts
-    const dateOptions = useMemo(() => {
-        const counts: Record<string, { display: string; count: number; dateObj: Date }> = {};
-        allParsedCandidates.forEach(c => {
-            if (c.isDuplicateInFile) return;
-            if (!counts[c.dateKey]) {
-                counts[c.dateKey] = {
-                    display: c.dateDisplay,
-                    count: 0,
-                    dateObj: c.startTime
-                };
-            }
-            counts[c.dateKey].count++;
-        });
-
-        return Object.entries(counts)
-            .map(([key, data]) => ({
-                key,
-                display: data.display,
-                count: data.count,
-                dateObj: data.dateObj
-            }))
-            .sort((a, b) => a.key.localeCompare(b.key));
-    }, [allParsedCandidates]);
-
-    // Calculate unique categories with counts
-    const categoryOptions = useMemo(() => {
-        const counts: Record<string, number> = {};
-        allParsedCandidates.forEach(c => {
-            if (c.isDuplicateInFile) return;
-            counts[c.reason] = (counts[c.reason] || 0) + 1;
-        });
-
-        return Object.entries(counts)
-            .map(([category, count]) => ({ category, count }))
-            .sort((a, b) => b.count - a.count);
-    }, [allParsedCandidates]);
-
-    // Filter categories by search
-    const filteredCategoryOptions = useMemo(() => {
-        if (!searchCategory.trim()) return categoryOptions;
-        const q = searchCategory.toLowerCase();
-        return categoryOptions.filter(c => c.category.toLowerCase().includes(q));
-    }, [categoryOptions, searchCategory]);
-
-    // Filtered candidates ready to be imported
-    const importableCandidates = useMemo(() => {
-        return allParsedCandidates.filter(c =>
-            !c.isDuplicateInFile &&
-            !c.isAlreadyInSystem &&
-            selectedDates.has(c.dateKey) &&
-            selectedCategories.has(c.reason)
-        );
-    }, [allParsedCandidates, selectedDates, selectedCategories]);
-
-    const duplicateCount = useMemo(() => {
-        return allParsedCandidates.filter(c => c.isDuplicateInFile).length;
-    }, [allParsedCandidates]);
-
-    const alreadyInSystemCount = useMemo(() => {
-        return allParsedCandidates.filter(c => !c.isDuplicateInFile && c.isAlreadyInSystem).length;
-    }, [allParsedCandidates]);
-
-    // Date toggles
     const handleSelectAllDates = () => {
         setSelectedDates(new Set(dateOptions.map(d => d.key)));
     };
@@ -412,7 +415,6 @@ const MaintenanceImportModal: React.FC<MaintenanceImportModalProps> = ({
         });
     };
 
-    // Category toggles
     const handleSelectAllCategories = () => {
         setSelectedCategories(new Set(categoryOptions.map(c => c.category)));
     };
@@ -428,7 +430,6 @@ const MaintenanceImportModal: React.FC<MaintenanceImportModalProps> = ({
         });
     };
 
-    // Confirm Import
     const handleConfirmImport = () => {
         if (importableCandidates.length === 0) {
             alert("Seçilen filtrelere uyan yüklenecek bakım kaydı bulunmuyor.");
@@ -446,6 +447,9 @@ const MaintenanceImportModal: React.FC<MaintenanceImportModalProps> = ({
         onImport(newMaintenanceBlocks);
         handleClose();
     };
+
+    // If modal is not open, return null only AFTER all hooks have executed
+    if (!isOpen) return null;
 
     return (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[80] p-4">
