@@ -544,8 +544,8 @@ export interface AiAllocationResult {
 /**
  * Pass G: Buffer Smoothing & Stand Leveling (İki Aşamalı Dayanıklı Planlama)
  * Körük kullanım oranından %0.1 bile feragat etmeden; köprüdeki uçaklar arasında
- * 25 dakikanın altında kalan riskli darboğazları tespit eder ve aynı iskeledeki
- * daha geniş tampona (30-90 dk) sahip stantlara kaydırarak yerde uçak bekleme riskini eler.
+ * 75 dakikanın altında kalan tamponları tespit eder ve boş kardeş MARS stantlarına (L/R dengelemesi)
+ * veya aynı iskeledeki daha geniş tampona sahip stantlara kaydırarak yerde uçak bekleme riskini eler.
  */
 function runBufferSmoothingPass(
     allFlights: Flight[],
@@ -554,9 +554,9 @@ function runBufferSmoothingPass(
     maintenanceBlocks?: MaintenanceBlock[]
 ): number {
     let smoothedCount = 0;
-    const CRITICAL_BUFFER_MS = 25 * 60 * 1000; // 25 dk altı riskli darboğaz
-    const TARGET_MIN_BUFFER_MS = 30 * 60 * 1000; // Taşınacağı stantta en az 30 dk tampon olmalı
-    const MAX_SMOOTH_PASSES = 3;
+    const CRITICAL_BUFFER_MS = 75 * 60 * 1000; // 75 dk altı tamponlar (rahatlatılabilir alanlar)
+    const TARGET_MIN_BUFFER_MS = 40 * 60 * 1000; // Taşınacağı stantta en az 40 dk tampon olmalı
+    const MAX_SMOOTH_PASSES = 4;
 
     for (let pass = 0; pass < MAX_SMOOTH_PASSES; pass++) {
         let movedInPass = false;
@@ -569,7 +569,7 @@ function runBufferSmoothingPass(
             return true;
         });
 
-        // Darboğazı olan uçuşları öncelemek için süreye göre tara
+        // En dar tampona sahip uçuşları öncelemek için süreye göre tara
         for (const flight of bridgeFlights) {
             const currentStand = flightUpdates.get(flight.id);
             if (!currentStand) continue;
@@ -601,7 +601,7 @@ function runBufferSmoothingPass(
                 if (gapAfter < minCurrentBuffer) minCurrentBuffer = gapAfter;
             }
 
-            // Eğer mevcut stanttaki tampon zaten rahatsa (> 25 dk), taşımaya gerek yok!
+            // Eğer mevcut stantta zaten başka uçak yoksa veya aralık çok genişse (> 75 dk), taşımaya gerek yok!
             if (minCurrentBuffer > CRITICAL_BUFFER_MS) continue;
 
             // Uçuşun gidebileceği izinli köprü concourse'ları
@@ -610,56 +610,76 @@ function runBufferSmoothingPass(
             let bestTargetStand: StandSchedule | null = null;
             let bestTargetBuffer = minCurrentBuffer;
 
-            for (const conc of allowedConc) {
-                for (const sName of (CONCOURSE_LAYOUT[conc] || [])) {
-                    if (sName === currentStand) continue;
-                    const candSched = topology.get(sName);
-                    if (!candSched || !isContactStand(candSched.stand)) continue;
+            // 1. ÖNCELİK: MARS İkiz Kardeş Stand Dengelemesi (Örn: A3L'deki uçağı boş A3R'ye alma)
+            if (currentSched.isMarsSub && currentSched.marsCenterStand) {
+                const centerSched = topology.get(currentSched.marsCenterStand);
+                const siblingName = centerSched?.marsSubStands?.find(s => s !== currentStand);
+                if (siblingName) {
+                    const sibSched = topology.get(siblingName);
+                    if (sibSched && canFitOnStand(sibSched, arrMs, depMs, isWide, topology, isHeavy) &&
+                        !hasMaintenanceConflict(siblingName, flight.scheduledArrival, flight.scheduledDeparture, maintenanceBlocks)) {
+                        
+                        const sibIntervals = sibSched.intervals.filter(i => i.flightId !== flight.id).sort((a, b) => a.start - b.start);
+                        let sibBefore = Infinity;
+                        const sPrev = [...sibIntervals].reverse().find(i => i.end <= arrMs);
+                        if (sPrev) sibBefore = arrMs - sPrev.end;
 
-                    // Akşam WB yatısıysa MARS Center yasak
-                    if (isEveningWidebodyLongStay(flight) && candSched.isMarsCenter) continue;
+                        let sibAfter = Infinity;
+                        const sNext = sibIntervals.find(i => i.start >= depMs);
+                        if (sNext) sibAfter = sNext.start - depMs;
 
-                    // Bakım engeli var mı?
-                    if (hasMaintenanceConflict(sName, flight.scheduledArrival, flight.scheduledDeparture, maintenanceBlocks)) continue;
+                        const sibMinBuffer = Math.min(sibBefore, sibAfter);
+                        if (sibMinBuffer >= TARGET_MIN_BUFFER_MS && sibMinBuffer > minCurrentBuffer + (15 * 60 * 1000)) {
+                            bestTargetStand = sibSched;
+                            bestTargetBuffer = sibMinBuffer;
+                        }
+                    }
+                }
+            }
 
-                    // candSched'e yerleşebilir mi?
-                    if (!canFitOnStand(candSched, arrMs, depMs, isWide, topology, isHeavy)) continue;
+            // 2. GENEL ARAMA: Diğer tüm uygun köprü stantlarını tara
+            if (!bestTargetStand) {
+                for (const conc of allowedConc) {
+                    for (const sName of (CONCOURSE_LAYOUT[conc] || [])) {
+                        if (sName === currentStand) continue;
+                        const candSched = topology.get(sName);
+                        if (!candSched || !isContactStand(candSched.stand)) continue;
 
-                    // candSched'e yerleşirse oluşacak tamponu hesapla
-                    const candIntervals = candSched.intervals
-                        .filter(i => i.flightId !== flight.id)
-                        .sort((a, b) => a.start - b.start);
+                        if (isEveningWidebodyLongStay(flight) && candSched.isMarsCenter) continue;
+                        if (hasMaintenanceConflict(sName, flight.scheduledArrival, flight.scheduledDeparture, maintenanceBlocks)) continue;
+                        if (!canFitOnStand(candSched, arrMs, depMs, isWide, topology, isHeavy)) continue;
 
-                    let candBufferBefore = Infinity;
-                    const cPrev = [...candIntervals].reverse().find(i => i.end <= arrMs);
-                    if (cPrev) candBufferBefore = arrMs - cPrev.end;
+                        const candIntervals = candSched.intervals
+                            .filter(i => i.flightId !== flight.id)
+                            .sort((a, b) => a.start - b.start);
 
-                    let candBufferAfter = Infinity;
-                    const cNext = candIntervals.find(i => i.start >= depMs);
-                    if (cNext) candBufferAfter = cNext.start - depMs;
+                        let candBufferBefore = Infinity;
+                        const cPrev = [...candIntervals].reverse().find(i => i.end <= arrMs);
+                        if (cPrev) candBufferBefore = arrMs - cPrev.end;
 
-                    const candMinBuffer = Math.min(candBufferBefore, candBufferAfter);
+                        let candBufferAfter = Infinity;
+                        const cNext = candIntervals.find(i => i.start >= depMs);
+                        if (cNext) candBufferAfter = cNext.start - depMs;
 
-                    // Aday stantta en az 30 dk tampon olmalı ve mevcut stanttaki darboğazdan belirgin şekilde iyi olmalı
-                    if (candMinBuffer >= TARGET_MIN_BUFFER_MS && candMinBuffer > bestTargetBuffer + (15 * 60 * 1000)) {
-                        bestTargetStand = candSched;
-                        bestTargetBuffer = candMinBuffer;
+                        const candMinBuffer = Math.min(candBufferBefore, candBufferAfter);
+
+                        if (candMinBuffer >= TARGET_MIN_BUFFER_MS && candMinBuffer > bestTargetBuffer + (15 * 60 * 1000)) {
+                            bestTargetStand = candSched;
+                            bestTargetBuffer = candMinBuffer;
+                        }
                     }
                 }
             }
 
             // İdeal daha dengeli bir stant bulundu! Taşıma işlemini gerçekleştir
             if (bestTargetStand) {
-                // Eski stanttan çıkar
                 currentSched.intervals = currentSched.intervals.filter(i => i.flightId !== flight.id);
-
-                // Yeni standa yerleştir
                 placeOnStand(bestTargetStand, arrMs, depMs, flight.id);
                 flightUpdates.set(flight.id, bestTargetStand.stand);
 
                 smoothedCount++;
                 movedInPass = true;
-                break; // Topoloji değiştiği için bir sonraki taramaya geç
+                break;
             }
         }
 
@@ -866,6 +886,7 @@ export function runFromScratchAllocation(
             interface SubStandCandidate {
                 sched: StandSchedule;
                 syncScore: number;
+                currentLoad: number;
             }
             const subCandidates: SubStandCandidate[] = [];
 
@@ -908,13 +929,17 @@ export function runFromScratchAllocation(
                                 }
                             }
                         }
-                        subCandidates.push({ sched, syncScore });
+                        subCandidates.push({ sched, syncScore, currentLoad: sched.intervals.length });
                     }
                 }
             }
 
             // Prioritize highest synchronization score (best pairs) first!
-            subCandidates.sort((a, b) => b.syncScore - a.syncScore);
+            // If synchronization is tied, pick the sibling sub-stand with FEWER flights to balance L & R!
+            subCandidates.sort((a, b) => {
+                if (b.syncScore !== a.syncScore) return b.syncScore - a.syncScore;
+                return a.currentLoad - b.currentLoad;
+            });
 
             for (const cand of subCandidates) {
                 if (canFitOnStand(cand.sched, arrMs, depMs, false, topology)) {

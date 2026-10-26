@@ -120,3 +120,8 @@
       - **Darboğaz Tespiti:** Ardışık iki uçuş arasında 25 dakikanın altında kalan riskli tamponlar (pushback/gecikme durumunda apronda taksi beklemesi yaratabilecek durumlar) tespit edilir.
       - **Homojen Yayma:** Kritik aralığa sahip uçuş, aynı iskelede en az 30 dakika güvenli tampon sunabilen daha geniş boşluklu bir stanta kaydırılır.
       - **Sonuç:** Apron ve alleyway tıkanıklığı önlenir, yerde uçak bekleme riski ortadan kaldırılır ve tüm stantlar dengeli 30-75 dk tamponlarla çalışır.
+
+17. **MARS Ikiz Stand Dengelemesi (L/R Balancing) & Gelismis Tampon Acma (26.10.2026):**
+    - **Sorun:** Ornegin A3L stantina ust uste 45 dk arayla 2 ucak (TG5420 ve TK0315) dizilirken, ayni saat diliminde ikiz kardes pozisyon A3R tamamen bos kaliyordu.
+    - **Ilk Yerlesim Dengelemesi (Pass A):** A3L ve A3R arasinda secim yapilirken currentLoad (mevcut ucus adedi) kriteri eklendi. Biri bosken digerine ust uste ucak yigilmasi engellendi; ucuslar L ve R kardes stantlara esit dagitilir.
+    - **Pass G Gelistirmesi:** Kritik tampon esigi 25 dakikadan 75 dakikaya cikarildi ve MARS Ikiz Kardes Stand onceligi eklendi. A3L'de araligi 75 dk altinda kalan bir ucus varsa ve A3R bossa, ucus aninda A3R'ye kaydirilarak her iki stantta da 2-3 saatlik devasa guvenli tamponlar olusturulur.
