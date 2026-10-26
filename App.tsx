@@ -24,6 +24,9 @@ import { runAiBridgeAllocation, calculateBridgeUtilization, hasMaintenanceConfli
 import { getAircraftCategory } from './services/ams-rules.ts';
 import AiAllocationReportModal, { AiReportData } from './components/AiAllocationReportModal.tsx';
 import AiCopilotModal from './components/AiCopilotModal.tsx';
+import GeminiSettingsModal from './components/GeminiSettingsModal.tsx';
+import GeminiDeepThinkingModal from './components/GeminiDeepThinkingModal.tsx';
+import { getStoredApiKey } from './services/gemini-api.ts';
 import { database } from './firebase.ts';
 import { ref, onValue, set, update, remove } from 'firebase/database';
 import { User } from 'firebase/auth';
@@ -674,6 +677,9 @@ const App: React.FC<{ user: User }> = ({ user }) => {
     const [aiReportData, setAiReportData] = useState<AiReportData | null>(null);
     const [isAiReportModalOpen, setIsAiReportModalOpen] = useState(false);
     const [isCopilotOpen, setIsCopilotOpen] = useState(false);
+    const [isGeminiThinkingOpen, setIsGeminiThinkingOpen] = useState(false);
+    const [isGeminiSettingsOpen, setIsGeminiSettingsOpen] = useState(false);
+    const [geminiKeyActive, setGeminiKeyActive] = useState<boolean>(() => Boolean(getStoredApiKey()));
 
     const [selectedFlightIds, setSelectedFlightIds] = useState<Set<string>>(new Set());
     const mainContentRef = useRef<HTMLDivElement>(null);
@@ -1822,6 +1828,35 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                                 </span>
                             </button>
 
+                            {/* 🧠 GEMINI DERİN DÜŞÜNEN AI (DEEP REASONING) */}
+                            <button 
+                                onClick={() => setIsGeminiThinkingOpen(true)}
+                                disabled={flights.length === 0}
+                                className="flex items-center gap-1.5 px-3 py-1.5 font-semibold rounded-lg text-white shadow-md transition duration-200 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer select-none border border-purple-400/50 bg-gradient-to-r from-purple-700 via-indigo-600 to-pink-600 hover:from-purple-600 hover:to-indigo-500 shadow-purple-900/30"
+                                title="Gemini Derin Düşünce Modeli ile insan sezgisi ve çok adımlı takaslarla körük oranını maksimize et"
+                            >
+                                <span className="text-sm animate-pulse">🧠</span>
+                                <span>Derin Düşünen AI</span>
+                                <span className="text-[10px] font-extrabold px-1.5 py-0.2 rounded bg-purple-300 text-gray-950 shadow-sm">
+                                    Gemini Pro
+                                </span>
+                            </button>
+
+                            {/* 🔑 GEMINI API KEY AYARLARI */}
+                            <button
+                                onClick={() => setIsGeminiSettingsOpen(true)}
+                                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition ${
+                                    geminiKeyActive
+                                        ? 'bg-purple-950/60 border-purple-500/50 text-purple-200 hover:bg-purple-900/80'
+                                        : 'bg-gray-800 border-gray-700 text-gray-400 hover:text-white'
+                                }`}
+                                title="Gemini API Anahtarı ve Model Ayarları"
+                            >
+                                <span className="text-xs">🔑</span>
+                                <span>API Key</span>
+                                <span className={`w-2 h-2 rounded-full ${geminiKeyActive ? 'bg-emerald-400 animate-pulse' : 'bg-gray-500'}`} />
+                            </button>
+
                             <button 
                                 onClick={handleExportGateExcel} 
                                 className="flex items-center gap-1.5 px-3 py-1.5 font-semibold rounded-lg bg-gray-800/90 hover:bg-gray-750 text-emerald-400 hover:text-emerald-300 border border-emerald-600/40 shadow-sm transition duration-200"
@@ -2080,6 +2115,30 @@ const App: React.FC<{ user: User }> = ({ user }) => {
             <ExcelImportReportModal isOpen={isReportModalOpen} onClose={() => setReportModalOpen(false)} report={importReport} />
             <AiAllocationReportModal isOpen={isAiReportModalOpen} onClose={() => setIsAiReportModalOpen(false)} report={aiReportData} />
             <AiCopilotModal isOpen={isCopilotOpen} onClose={() => setIsCopilotOpen(false)} flights={flights} maintenanceBlocks={maintenanceBlocks} onApplyUpdates={handleCopilotUpdates} />
+            {isGeminiThinkingOpen && (
+                <ErrorBoundary fallbackTitle="Gemini Derin Düşünce Modalı Hatası">
+                    <GeminiDeepThinkingModal
+                        isOpen={isGeminiThinkingOpen}
+                        onClose={() => setIsGeminiThinkingOpen(false)}
+                        flights={flights}
+                        maintenanceBlocks={maintenanceBlocks}
+                        onApplyUpdates={handleCopilotUpdates}
+                        onOpenSettings={() => {
+                            setIsGeminiThinkingOpen(false);
+                            setIsGeminiSettingsOpen(true);
+                        }}
+                    />
+                </ErrorBoundary>
+            )}
+            {isGeminiSettingsOpen && (
+                <ErrorBoundary fallbackTitle="Gemini Ayarları Modalı Hatası">
+                    <GeminiSettingsModal
+                        isOpen={isGeminiSettingsOpen}
+                        onClose={() => setIsGeminiSettingsOpen(false)}
+                        onKeyUpdated={() => setGeminiKeyActive(Boolean(getStoredApiKey()))}
+                    />
+                </ErrorBoundary>
+            )}
             <ExcelErrorModal isOpen={isExcelErrorModalOpen} onClose={() => setExcelErrorModalOpen(false)} errors={excelErrors} />
             {historyModalFlight && <FlightHistoryModal flight={historyModalFlight} onClose={() => setHistoryModalFlight(null)} />}
             {trackingFlight && <FlightTrackingModal flight={trackingFlight} onClose={() => setTrackingFlight(null)} />}
