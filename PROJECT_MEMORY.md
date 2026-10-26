@@ -112,3 +112,11 @@
     - **Kademeli & Transaksiyonel Genis Govde Yukseltme Motoru (Standalone + MARS Elevation):**
       - Acikta kalan genis govdeler icin sadece MARS Center stantlari degil, Concourse D (D6-D17), Concourse B (B13-B17) gibi standalone bagimsiz genis govde stantlari da takas taramasina alindi.
       - Eger standalone standda dar govde varsa ve baska bir koruge tasinabiliyorsa, dar govde tahliye edilir ve aciktaki genis govde koruge cekilir. Biri bile tasinamiyorsa tum islem aninda iptal edilir (Rollback).
+
+16. **Otomatik Dayanıklı Tampon Dengeleme Katmanı (Pass G - Buffer Smoothing) (26.10.2026):**
+    - **İki Aşamalı Dayanıklı Planlama (Robust Gate Assignment):**
+      - Kullanıcı talebi (Seçenek 1) doğrultusunda AI Skor Planlama sonuna otomatik Pass G (Buffer Smoothing) katmanı eklendi.
+      - **Körük Koruma Prensibi:** Köprüdeki hiçbir uçak açığa atılamaz (%0 körük oranı kaybı). Sadece köprülü stantlar arasında yanal kaydırma yapılır.
+      - **Darboğaz Tespiti:** Ardışık iki uçuş arasında 25 dakikanın altında kalan riskli tamponlar (pushback/gecikme durumunda apronda taksi beklemesi yaratabilecek durumlar) tespit edilir.
+      - **Homojen Yayma:** Kritik aralığa sahip uçuş, aynı iskelede en az 30 dakika güvenli tampon sunabilen daha geniş boşluklu bir stanta kaydırılır.
+      - **Sonuç:** Apron ve alleyway tıkanıklığı önlenir, yerde uçak bekleme riski ortadan kaldırılır ve tüm stantlar dengeli 30-75 dk tamponlarla çalışır.

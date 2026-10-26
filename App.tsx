@@ -997,11 +997,11 @@ const App: React.FC<{ user: User }> = ({ user }) => {
         setTimeout(() => {
             try {
                 const initialStats = calculateBridgeUtilization(flights, startDate, endDate);
-                const { flights: newFlights, stats, swapDetails, totalSwapsPerformed, netFlightsGained, gapFillsPerformed } = runAiBridgeAllocation(flights, startDate, endDate, maintenanceBlocks);
+                const { flights: newFlights, stats, swapDetails, totalSwapsPerformed, netFlightsGained, gapFillsPerformed, bufferSmoothedCount } = runAiBridgeAllocation(flights, startDate, endDate, maintenanceBlocks);
 
                 const newHistoryEntry: FlightHistoryEntry = {
                     user: currentUser.username,
-                    action: `AI Skor Planlama yapıldı (Köprü Oranı: %${stats.bridgeRate.toFixed(1)}, ${totalSwapsPerformed} akıllı takas).`,
+                    action: `AI Skor Planlama yapıldı (Köprü Oranı: %${stats.bridgeRate.toFixed(1)}, ${totalSwapsPerformed} akıllı takas, ${bufferSmoothedCount || 0} tampon düzeltme).`,
                     timestamp: new Date()
                 };
 
@@ -1035,7 +1035,8 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                     });
                 }
 
-                setAllocationMessage(`⚡ AI Skor Planlama Tamamlandı: %${stats.bridgeRate.toFixed(1)} Köprü Oranı (${stats.bridgeAssignedCount} / ${stats.eligibleFlightsCount} Yolcu Körükte, ${totalSwapsPerformed} Akıllı Takas)`);
+                const smoothMsg = (bufferSmoothedCount && bufferSmoothedCount > 0) ? `, 🛡️ ${bufferSmoothedCount} Tampon Dengelendi` : '';
+                setAllocationMessage(`⚡ AI Skor Planlama Tamamlandı: %${stats.bridgeRate.toFixed(1)} Köprü Oranı (${stats.bridgeAssignedCount} / ${stats.eligibleFlightsCount} Yolcu Körükte, ${totalSwapsPerformed} Akıllı Takas${smoothMsg})`);
                 setTimeout(() => setAllocationMessage(null), 8000);
 
                 // Open AI Report Card Modal
