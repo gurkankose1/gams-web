@@ -22,6 +22,7 @@ interface TimelineLaneProps {
   activeFilter: 'all' | 'domestic' | 'international';
   flightElements: React.MutableRefObject<Map<string, HTMLDivElement>>;
   maintenanceBlocks: MaintenanceBlock[];
+  allMaintenanceBlocks?: MaintenanceBlock[];
   onUpdateMaintenanceBlock: (blockId: string, newTimes: { startTime?: Date, endTime?: Date }) => void;
   isSuperSetMode?: boolean;
 }
@@ -61,6 +62,7 @@ const TimelineLaneComponent: React.FC<TimelineLaneProps> = ({
     activeFilter,
     flightElements,
     maintenanceBlocks,
+    allMaintenanceBlocks,
     onUpdateMaintenanceBlock,
     isSuperSetMode = false
 }) => {
@@ -122,10 +124,18 @@ const TimelineLaneComponent: React.FC<TimelineLaneProps> = ({
             if (hasTimeOverlap) return false;
 
             if (laneType === 'parking') {
-                const hasMaintenanceConflict = maintenanceBlocks.some(block =>
-                    draggedFlight.scheduledArrival < block.endTime &&
-                    draggedFlight.scheduledDeparture > block.startTime
-                );
+                const blocksToCheck = allMaintenanceBlocks || maintenanceBlocks;
+                const hasMaintenanceConflict = blocksToCheck.some(block => {
+                    const blockPos = block.parkingPosition ? block.parkingPosition.trim().toUpperCase() : '';
+                    const lanePos = laneId.trim().toUpperCase();
+                    const isMatch = lanePos === blockPos ||
+                        ((lanePos.endsWith('L') || lanePos.endsWith('R')) && lanePos.slice(0, -1) === blockPos) ||
+                        ((blockPos.endsWith('L') || blockPos.endsWith('R')) && blockPos.slice(0, -1) === lanePos);
+
+                    return isMatch &&
+                        draggedFlight.scheduledArrival < block.endTime &&
+                        draggedFlight.scheduledDeparture > block.startTime;
+                });
                 if (hasMaintenanceConflict) return false;
 
                 const validation = validateFlightPlacement(draggedFlight, laneId, allFlights, ruleOverrides, isSuperSetMode);
@@ -141,7 +151,7 @@ const TimelineLaneComponent: React.FC<TimelineLaneProps> = ({
                 canDrop: isOver ? !!monitor.canDrop() : false,
             };
         },
-    }), [onDropFlight, laneId, flights, allFlights, ruleOverrides, maintenanceBlocks, laneType, isSuperSetMode]);
+    }), [onDropFlight, laneId, flights, allFlights, ruleOverrides, maintenanceBlocks, allMaintenanceBlocks, laneType, isSuperSetMode]);
 
     let laneBgClass = 'bg-[#3a3a3a]';
     if (isOver) {

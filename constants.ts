@@ -116,6 +116,36 @@ export const AIRCRAFT_MTOW: Record<string, number> = {
 
 export const DEFAULT_MTOW = 70; // Default tons for unknown aircraft
 
+// Standard Maintenance / Downgrade Categories (from real IST Airport Equipment Status)
+export const MAINTENANCE_CATEGORIES: string[] = [
+  'FLB - LET BAKIM',
+  'PBB ARIZA - MEKANİK ÇALIŞMA',
+  'PIER İÇİ ÇALIŞMA/GİDEN KATI',
+  'FLB - BAKIM',
+  'FLB TEMİZLİK',
+  'PBB PCA ÇALIŞMASI',
+  'PBB 6 AYLIK BAKIM',
+  'PBB YILLIK PERIYODIK BAKIM',
+  'PBB 2 AYLIK BAKIM',
+  'PBB 400Hz ÇALIŞMASI',
+  'APRON ÇİZGİ ÇALIŞMASI',
+  'SU ÜNİTESİ BAKIM',
+  'KISA TEMİZLİK',
+  'FLB İÇİ SU AKINTISI - DİĞER',
+  'ELEKTRİK ÇALIŞMASI',
+  'YAĞ/YAKIT SIZINTISI',
+  'PIER İÇİ ÇALIŞMA/GELEN KATI',
+  'VDGS',
+  'APRON ZEMİN ÇALIŞMASI',
+  'DIŞ CEPHE BAKIM',
+  'BOARDING KAPI ARIZASI',
+  'FLB AYDINLATMA',
+  'ARA KAPI',
+  'FANCOIL ÇALIŞMASI',
+  'IT CALISMA',
+  'Genel Bakım / Downgrade'
+];
+
 // Airline-based color mapping for flight cards (matching reference ADB SAFEGATE AOS application)
 export const AIRLINE_COLORS: Record<string, { bg: string; border: string }> = {
   // THY - Turkish Airlines

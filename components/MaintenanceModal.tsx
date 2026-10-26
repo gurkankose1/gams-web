@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { MaintenanceBlock } from '../types.ts';
-import { PARKING_POSITIONS } from '../constants.ts';
+import { PARKING_POSITIONS, MAINTENANCE_CATEGORIES } from '../constants.ts';
 
 interface MaintenanceModalProps {
   isOpen: boolean;
@@ -117,15 +117,23 @@ const MaintenanceModal: React.FC<MaintenanceModalProps> = ({ isOpen, onClose, on
           </div>
           <div>
             <label htmlFor="reason" className="block text-sm font-medium text-gray-300 mb-1">
-              Sebep
+              Bakım Kategorisi / Sebep <span className="text-red-500">*</span>
             </label>
             <input
               id="reason"
               type="text"
+              list="maintenance-categories-list"
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              className="w-full p-2 bg-gray-700 border rounded-md text-white border-gray-600"
+              placeholder="Kategori seçin veya yazın..."
+              required
+              className="w-full p-2 bg-gray-700 border rounded-md text-white border-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-500"
             />
+            <datalist id="maintenance-categories-list">
+              {MAINTENANCE_CATEGORIES.map(cat => (
+                <option key={cat} value={cat} />
+              ))}
+            </datalist>
           </div>
         </main>
 

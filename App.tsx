@@ -9,6 +9,7 @@ import FlightContextMenu from './components/FlightContextMenu.tsx';
 import FlightHistoryModal from './components/FlightHistoryModal.tsx';
 import FlightTrackingModal from './components/FlightTrackingModal.tsx';
 import MaintenanceModal from './components/MaintenanceModal.tsx';
+import MaintenanceImportModal from './components/MaintenanceImportModal.tsx';
 import ExcelErrorModal from './components/ExcelErrorModal.tsx';
 import ExcelImportReportModal, { ImportReport } from './components/ExcelImportReportModal.tsx';
 import MaintenanceManagementModal from './components/MaintenanceManagementModal.tsx';
@@ -18,7 +19,7 @@ import ChangePasswordModal from './auth/ChangePasswordModal.tsx';
 import CustomDragLayer from './components/CustomDragLayer.tsx';
 import HeaderRevenueSummary from './components/HeaderRevenueSummary.tsx';
 import BottomRevenueSummaryBar from './components/BottomRevenueSummaryBar.tsx';
-import { runAiBridgeAllocation, calculateBridgeUtilization } from './services/ai-allocator.ts';
+import { runAiBridgeAllocation, calculateBridgeUtilization, hasMaintenanceConflict } from './services/ai-allocator.ts';
 import AiAllocationReportModal, { AiReportData } from './components/AiAllocationReportModal.tsx';
 import AiCopilotModal from './components/AiCopilotModal.tsx';
 import { database } from './firebase.ts';
@@ -650,6 +651,7 @@ const App: React.FC<{ user: User }> = ({ user }) => {
     const [isMappingModalOpen, setMappingModalOpen] = useState(false);
     const [isMaintenanceModalOpen, setMaintenanceModalOpen] = useState(false);
     const [isMaintenanceManagementModalOpen, setMaintenanceManagementModalOpen] = useState(false);
+    const [isMaintenanceImportModalOpen, setMaintenanceImportModalOpen] = useState(false);
     const [isAdminPanelOpen, setAdminPanelOpen] = useState(false);
     const [isChangePasswordModalOpen, setChangePasswordModalOpen] = useState(false);
     const [editingMaintenanceBlock, setEditingMaintenanceBlock] = useState<MaintenanceBlock | null>(null);
@@ -1217,6 +1219,25 @@ const App: React.FC<{ user: User }> = ({ user }) => {
         const flight = flights.find(f => f.id === flightId);
         if (!flight) return;
 
+        // Strict Operational Rule: Do not allow manual assignment onto stands during active maintenance/downgrade
+        if (hasMaintenanceConflict(parkingPosition, flight.scheduledArrival, flight.scheduledDeparture, maintenanceBlocks)) {
+            const conflictBlock = maintenanceBlocks.find(b => {
+                const bPos = b.parkingPosition ? b.parkingPosition.trim().toUpperCase() : '';
+                const fPos = parkingPosition.trim().toUpperCase();
+                const isMatch = fPos === bPos ||
+                    ((fPos.endsWith('L') || fPos.endsWith('R')) && fPos.slice(0, -1) === bPos) ||
+                    ((bPos.endsWith('L') || bPos.endsWith('R')) && bPos.slice(0, -1) === fPos);
+                const bStart = new Date(b.startTime).getTime();
+                const bEnd = new Date(b.endTime).getTime();
+                return isMatch && flight.scheduledArrival.getTime() < bEnd && flight.scheduledDeparture.getTime() > bStart;
+            });
+
+            const durStr = conflictBlock ? `(${new Date(conflictBlock.startTime).toLocaleString('tr-TR')} - ${new Date(conflictBlock.endTime).toLocaleString('tr-TR')})` : '';
+            const reasonStr = conflictBlock?.reason ? `[${conflictBlock.reason}]` : 'Bakım';
+            alert(`⚠️ MANUEL ATAMA ENGELLENDİ!\n\n${parkingPosition} park pozisyonunda aktif bakım/downgrade bulunmaktadır:\n${reasonStr} ${durStr}\n\nBakım süresi boyunca bu pozisyona manuel uçak yatırılamaz.`);
+            return;
+        }
+
         const description = `${flight.arrivalFlightNumber || flight.departureFlightNumber} uçuşu ${parkingPosition} pozisyonuna atandı.`;
         const newHistoryEntry: FlightHistoryEntry = {
             user: currentUser.username,
@@ -1484,87 +1505,41 @@ const App: React.FC<{ user: User }> = ({ user }) => {
             ? maintenanceBlocks.map(b => b.id === id_to_update ? savedBlock : b)
             : [...maintenanceBlocks, savedBlock];
 
-        // Safely pull any existing flights on this stand (or MARS counterpart) that conflict with the maintenance window into pool!
-        const bPos = savedBlock.parkingPosition.trim().toUpperCase();
-        const bStartMs = new Date(savedBlock.startTime).getTime();
-        const bEndMs = new Date(savedBlock.endTime).getTime();
+        // Flights remain intact as planned; maintenance block is placed on the stand
+        updateDatabase({ flights, maintenanceBlocks: newBlocks, gates: gateList });
 
-        let conflictCount = 0;
-        const updatedFlights = flights.map(f => {
-            if (!f.parkingPosition) return f;
-            const fPos = f.parkingPosition.trim().toUpperCase();
-            const fArrMs = f.scheduledArrival.getTime();
-            const fDepMs = f.scheduledDeparture.getTime();
+        setAllocationMessage(`✅ ${savedBlock.parkingPosition} pozisyonuna bakım/downgrade başarıyla kaydedildi.`);
+        setTimeout(() => setAllocationMessage(null), 5000);
+    };
 
-            const isMatch = fPos === bPos ||
-                ((fPos.endsWith('L') || fPos.endsWith('R')) && fPos.slice(0, -1) === bPos) ||
-                ((bPos.endsWith('L') || bPos.endsWith('R')) && bPos.slice(0, -1) === fPos);
+    const handleImportMaintenanceBlocks = (importedBlocks: MaintenanceBlock[]) => {
+        const existingKeys = new Set(
+            maintenanceBlocks.map(b =>
+                `${b.parkingPosition.trim().toUpperCase()}|${new Date(b.startTime).getTime()}|${new Date(b.endTime).getTime()}|${b.reason.trim().toUpperCase()}`
+            )
+        );
 
-            if (isMatch && fArrMs < bEndMs && fDepMs > bStartMs) {
-                conflictCount++;
-                return {
-                    ...f,
-                    parkingPosition: null,
-                    history: [
-                        ...(f.history || []),
-                        {
-                            user: currentUser.username,
-                            action: `${bPos} pozisyonuna bakım (downgrade) girildiği için uçak havuza çekildi.`,
-                            timestamp: new Date()
-                        }
-                    ]
-                };
-            }
-            return f;
+        const filteredNewBlocks = importedBlocks.filter(b => {
+            const key = `${b.parkingPosition.trim().toUpperCase()}|${new Date(b.startTime).getTime()}|${new Date(b.endTime).getTime()}|${b.reason.trim().toUpperCase()}`;
+            return !existingKeys.has(key);
         });
 
-        updateDatabase({ flights: updatedFlights, maintenanceBlocks: newBlocks, gates: gateList });
+        const newBlocks = [...maintenanceBlocks, ...filteredNewBlocks];
+        updateDatabase({ flights, maintenanceBlocks: newBlocks, gates: gateList });
 
-        if (conflictCount > 0) {
-            setAllocationMessage(`⚠️ ${bPos} pozisyonuna bakım girildi: Çakışan ${conflictCount} uçuş güvenli şekilde havuza çekildi.`);
-            setTimeout(() => setAllocationMessage(null), 8000);
-        }
+        setAllocationMessage(`✅ ${filteredNewBlocks.length} adet bakım/downgrade kaydı sisteme başarıyla yüklendi!`);
+        setTimeout(() => setAllocationMessage(null), 8000);
     };
-    
+
+    const handleClearAllMaintenance = () => {
+        updateDatabase({ flights, maintenanceBlocks: [], gates: gateList });
+        setAllocationMessage(`🧹 Tüm bakım ve downgrade kayıtları temizlendi.`);
+        setTimeout(() => setAllocationMessage(null), 6000);
+    };
+
     const handleUpdateMaintenanceBlock = (blockId: string, newTimes: { startTime?: Date; endTime?: Date }) => {
         const newBlocks = maintenanceBlocks.map(b => b.id === blockId ? { ...b, ...newTimes } : b );
-        const updatedBlock = newBlocks.find(b => b.id === blockId);
-
-        let updatedFlights = flights;
-        if (updatedBlock) {
-            const bPos = updatedBlock.parkingPosition.trim().toUpperCase();
-            const bStartMs = new Date(updatedBlock.startTime).getTime();
-            const bEndMs = new Date(updatedBlock.endTime).getTime();
-
-            updatedFlights = flights.map(f => {
-                if (!f.parkingPosition) return f;
-                const fPos = f.parkingPosition.trim().toUpperCase();
-                const fArrMs = f.scheduledArrival.getTime();
-                const fDepMs = f.scheduledDeparture.getTime();
-
-                const isMatch = fPos === bPos ||
-                    ((fPos.endsWith('L') || fPos.endsWith('R')) && fPos.slice(0, -1) === bPos) ||
-                    ((bPos.endsWith('L') || bPos.endsWith('R')) && bPos.slice(0, -1) === fPos);
-
-                if (isMatch && fArrMs < bEndMs && fDepMs > bStartMs) {
-                    return {
-                        ...f,
-                        parkingPosition: null,
-                        history: [
-                            ...(f.history || []),
-                            {
-                                user: currentUser.username,
-                                action: `${bPos} pozisyonundaki bakım süresi güncellendiği için uçak havuza çekildi.`,
-                                timestamp: new Date()
-                            }
-                        ]
-                    };
-                }
-                return f;
-            });
-        }
-
-        updateDatabase({ flights: updatedFlights, maintenanceBlocks: newBlocks, gates: gateList });
+        updateDatabase({ flights, maintenanceBlocks: newBlocks, gates: gateList });
     };
     
     const handleDeleteMaintenanceBlock = (blockId: string) => {
@@ -1855,15 +1830,30 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                             <button 
                                 onClick={() => { setEditingMaintenanceBlock(null); setMaintenanceModalOpen(true); }} 
                                 className="px-2.5 py-1 font-semibold text-amber-300 hover:bg-gray-800 rounded-md transition flex items-center gap-1"
+                                title="Yeni park pozisyonu bakımı ekle"
                             >
                                 <span className="text-amber-400 font-bold">+</span> Bakım Ekle
                             </button>
                             <div className="h-4 w-px bg-gray-700/80 mx-0.5"></div>
                             <button 
-                                onClick={() => setMaintenanceManagementModalOpen(true)} 
-                                className="px-2.5 py-1 font-medium text-gray-300 hover:text-white hover:bg-gray-800 rounded-md transition"
+                                onClick={() => setMaintenanceImportModalOpen(true)} 
+                                className="px-2.5 py-1 font-semibold text-indigo-400 hover:text-indigo-300 hover:bg-gray-800 rounded-md transition flex items-center gap-1"
+                                title="Excel dosyasından toplu bakım / downgrade yükle"
                             >
-                                Bakım Yönetimi
+                                <span>📥</span> Bakım Excel Yükle
+                            </button>
+                            <div className="h-4 w-px bg-gray-700/80 mx-0.5"></div>
+                            <button 
+                                onClick={() => setMaintenanceManagementModalOpen(true)} 
+                                className="px-2.5 py-1 font-medium text-gray-300 hover:text-white hover:bg-gray-800 rounded-md transition flex items-center gap-1"
+                                title="Tanımlı bakımları listele ve yönet"
+                            >
+                                <span>🛠️</span> Bakım Yönetimi
+                                {maintenanceBlocks.length > 0 && (
+                                    <span className="bg-purple-600 text-white text-[10px] font-bold px-1.5 py-0.2 rounded-full ml-1">
+                                        {maintenanceBlocks.length}
+                                    </span>
+                                )}
                             </button>
                         </div>
 
@@ -2084,7 +2074,21 @@ const App: React.FC<{ user: User }> = ({ user }) => {
             {trackingFlight && <FlightTrackingModal flight={trackingFlight} onClose={() => setTrackingFlight(null)} />}
             
             <MaintenanceModal isOpen={isMaintenanceModalOpen} onClose={() => { setMaintenanceModalOpen(false); setEditingMaintenanceBlock(null); }} onSave={handleSaveMaintenance} blockToEdit={editingMaintenanceBlock} />
-            <MaintenanceManagementModal isOpen={isMaintenanceManagementModalOpen} onClose={() => setMaintenanceManagementModalOpen(false)} maintenanceBlocks={maintenanceBlocks} onEdit={handleOpenEditMaintenanceModal} onDelete={handleDeleteMaintenanceBlock} />
+            <MaintenanceManagementModal 
+                isOpen={isMaintenanceManagementModalOpen} 
+                onClose={() => setMaintenanceManagementModalOpen(false)} 
+                maintenanceBlocks={maintenanceBlocks} 
+                onEdit={handleOpenEditMaintenanceModal} 
+                onDelete={handleDeleteMaintenanceBlock}
+                onOpenImport={() => setMaintenanceImportModalOpen(true)}
+                onClearAll={handleClearAllMaintenance}
+            />
+            <MaintenanceImportModal
+                isOpen={isMaintenanceImportModalOpen}
+                onClose={() => setMaintenanceImportModalOpen(false)}
+                existingBlocks={maintenanceBlocks}
+                onImport={handleImportMaintenanceBlocks}
+            />
             
             {gateAssignmentFlight && (
                 <GateAssignmentModal
@@ -2224,6 +2228,7 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                                                             activeFilter={activeFilter}
                                                             flightElements={flightElements}
                                                             maintenanceBlocks={maintenanceByParkingPosition[pos] || EMPTY_MAINTENANCE}
+                                                            allMaintenanceBlocks={maintenanceBlocks}
                                                             onUpdateMaintenanceBlock={handleUpdateMaintenanceBlock}
                                                             isSuperSetMode={isSuperSetMode}
                                                         />

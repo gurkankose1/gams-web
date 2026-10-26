@@ -61,3 +61,15 @@
 9. **GitHub & Canlı Dağıtım:**
    - Dağıtım: `single_commit_push.js` scripti içinde `execSync('npx vercel --scope kraften-ambalaj --prod --yes')` ile otomatik olarak Vercel production ortamına (`https://gams-web-five.vercel.app`) aktarılmaktadır.
 
+
+10. **Gerçek Ekipman Durumu (Downgrade / Bakım) Excel İçe Aktarma & Çoklu Filtreleme (26.10.2026):**
+   - **İGA / IST Resmi Bakım Kategorileri:** Equipment Status_v2 (4).xlsx dosyasındaki 25 resmi bakım kategorisi (FLB - LET BAKIM, PBB ARIZA - MEKANİK ÇALIŞMA, PIER İÇİ ÇALIŞMA/GİDEN KATI, FLB TEMİZLİK, PBB PCA ÇALIŞMASI, PBB 2/6 AYLIK BAKIM, PBB YILLIK PERİYODİK BAKIM, SU ÜNİTESİ BAKIM vb.) constants.ts içerisine MAINTENANCE_CATEGORIES olarak eklendi ve MaintenanceModal.tsx içerisindeki açılır menü / otomatik tamamlama listesine bağlandı.
+   - **Interaktif Bakım İçe Aktarma Modalı (MaintenanceImportModal.tsx):**
+     - Kullanıcı Excel dosyasını yüklediğinde otomatik olarak sayfayı, başlıkları ve satırları tespit eder.
+     - **Tarih Filtresi:** Dosyada tespit edilen tüm günleri (örn: 31 Ağustos - 30 Eylül 2026) adetleriyle listeler; kullanıcı tek tıkla dilediği tarihleri seçip kaldırabilir.
+     - **Kategori Filtresi:** Dosyadaki 25 kategoriyi adetleriyle listeler; arama kutusu ve tümünü seç/kaldır düğmeleri ile esnek filtreleme sağlar.
+     - **Mükerrer (Deduplication) Motoru:** Aynı pozisyon, aynı tarih ve aynı saatteki mükerrer kayıtları (dosyadaki 286 mükerrer satır) ve veritabanında zaten mevcut olan kayıtları otomatik temizler.
+   - **Operasyonel Çakışma Kuralı Ayrımı (Operational Conflict Logic):**
+     - **Uçuş Planı İçe Aktarımı:** Gerçekleşen uçuş listesi yüklendiğinde veya bakım girildiğinde, fiilen gerçekleşen uçuşlar stantlarından silinmez veya havuza atılmaz; zaman çizelgesinde hem bakım bloğu hem uçuş kartı net şekilde görüntülenir.
+     - **Manuel Atama Engeli:** Kullanıcı havuza çekilmiş veya başka bir stanttaki uçağı bakım olan bir stanta (veya MARS ilişkili ana/alt stantlarına) sürükleyip bırakmak istediğinde sürükleme hedefi kırmızıya döner (canDrop: false) ve bırakma anında hasMaintenanceConflict tetiklenerek detaylı uyarı ile manuel yerleştirme engellenir.
+     - **AI Planlama Engeli:** AI Allocator (services/ai-allocator.ts), hasMaintenanceConflict ve topoloji kontrolleri sayesinde bakım olan hiçbir stanta uçak planlamaz.
