@@ -17,8 +17,17 @@ interface FlightCardProps {
   isSearched?: boolean;
 }
 
+export const isFlightUnregistered = (flight: Flight): boolean => {
+    if (!flight.regNo || flight.regNo.trim() === '') return true;
+    const cleanReg = flight.regNo.trim().toUpperCase();
+    if (cleanReg === 'ER' || cleanReg === 'ER/' || cleanReg === 'DUMMY' || cleanReg === 'NONE' || cleanReg === 'NULL' || cleanReg === 'TBA' || cleanReg === 'TC-') {
+        return true;
+    }
+    return false;
+};
+
 const getFlightDisplayText = (flight: Flight): string => {
-    const isUnregistered = !flight.regNo || flight.regNo === '' || flight.regNo.startsWith('ER') || flight.regNo === 'DUMMY' || flight.regNo === 'NONE';
+    const isUnregistered = isFlightUnregistered(flight);
     const erPrefix = isUnregistered && !flight.arrivalFlightNumber?.startsWith('ER') && !flight.departureFlightNumber?.startsWith('ER') ? 'ER/' : '';
 
     const isNoAc = !flight.aircraftType || flight.aircraftType.trim() === '' || flight.isTransparent || flight.aircraftType.toUpperCase() === 'NAN';
@@ -176,7 +185,7 @@ const FlightCard: React.FC<FlightCardProps> = ({
   const cardStyle = useMemo(() => {
     const isNoAc = !flight.aircraftType || flight.aircraftType.trim() === '' || flight.isTransparent || flight.aircraftType.toUpperCase() === 'NAN';
     const isWideBody = flight.acCategory === 'D' || flight.acCategory === 'E' || flight.acCategory === 'F' || WIDE_BODY_AIRCRAFT.has(flight.aircraftType?.toUpperCase().trim() || '');
-    const isUnregistered = !flight.regNo || flight.regNo.trim() === '' || flight.regNo.toUpperCase().startsWith('ER') || flight.regNo.toUpperCase() === 'DUMMY' || flight.regNo.toUpperCase() === 'NONE';
+    const isUnregistered = isFlightUnregistered(flight);
 
     let style: React.CSSProperties;
 

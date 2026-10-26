@@ -21,6 +21,7 @@ import CustomDragLayer from './components/CustomDragLayer.tsx';
 import HeaderRevenueSummary from './components/HeaderRevenueSummary.tsx';
 import BottomRevenueSummaryBar from './components/BottomRevenueSummaryBar.tsx';
 import { runAiBridgeAllocation, calculateBridgeUtilization, hasMaintenanceConflict } from './services/ai-allocator.ts';
+import { getAircraftCategory } from './services/ams-rules.ts';
 import AiAllocationReportModal, { AiReportData } from './components/AiAllocationReportModal.tsx';
 import AiCopilotModal from './components/AiCopilotModal.tsx';
 import { database } from './firebase.ts';
@@ -195,13 +196,22 @@ const parseTurnaroundDataWithMapping = (rawData: any[], mapping: Mapping, startD
         const origin = String(row[m.origin] || '').trim();
         const destination = String(row[m.dest] || '').trim();
         const aircraftType = String(row[m.ac] || '').trim();
-        const rawRegNo = m.regNo ? String(row[m.regNo] ?? '').toUpperCase().trim() : (row['RegNo'] || row['RegNo_1'] || row['Reg No'] || row['Reg'] || '');
-        const regNo = rawRegNo && rawRegNo !== 'NULL' && rawRegNo !== 'NONE' ? rawRegNo : undefined;
+        const rawRegNo = (m.regNo && row[m.regNo] !== undefined && row[m.regNo] !== null && String(row[m.regNo]).trim() !== '')
+            ? String(row[m.regNo]).toUpperCase().trim()
+            : String(row['RegNo'] || row['RegNo_1'] || row['RegNo.1'] || row['Reg No'] || row['Reg'] || row['A/C Reg'] || row['Tescil'] || row['Tail'] || '').toUpperCase().trim();
+        const regNo = rawRegNo && rawRegNo !== 'NULL' && rawRegNo !== 'NONE' && rawRegNo !== 'NAN' ? rawRegNo : undefined;
+        const isUnregistered = !regNo || regNo === '' || regNo === 'ER' || regNo === 'ER/' || regNo === 'DUMMY' || regNo === 'NONE' || regNo === 'TBA' || regNo === 'TC-';
         const airlineCode = (arrivalFlightNumber || departureFlightNumber).substring(0, 2);
 
         const rawAcCategory = String(row['A/C C'] || row['A/C C_1'] || row['acCategory'] || '').toUpperCase().trim();
         const rawTrafficMode = String(row['Mod'] || row['Mod_1'] || row['Mod.1'] || row['trafficMode'] || '').toUpperCase().trim();
-        const isNoAc = !rawAcCategory || rawAcCategory === 'NAN' || rawAcCategory === 'NULL' || (!aircraftType && !rawAcCategory) || aircraftType.toUpperCase() === 'NAN';
+        const effectiveCategory = (rawAcCategory && rawAcCategory !== 'NAN' && rawAcCategory !== 'NULL')
+            ? rawAcCategory
+            : (aircraftType ? getAircraftCategory(aircraftType) : '');
+
+        const isNoAc = (!aircraftType || aircraftType.toUpperCase() === 'NAN' || aircraftType.toUpperCase() === 'NULL') && !regNo;
+        // Otomatik Excel yüklemesinde tescilsiz uçaklar standa atanmaz (havuzda kalır)
+        const shouldAssignInitialStand = !isNoAc && !isUnregistered;
 
         const mtowKey = mapping.mtow;
         const rawMtowVal = mtowKey ? row[mtowKey] : (row['MTOW'] || row['mtow'] || row['Max MTOW'] || row['MTOW (Tons)']);
@@ -267,7 +277,7 @@ const parseTurnaroundDataWithMapping = (rawData: any[], mapping: Mapping, startD
                 departureIsDomestic: isDepDom,
                 departureMode: departureMode || rawTrafficMode,
                 trafficMode: rawTrafficMode,
-                acCategory: isNoAc ? '' : rawAcCategory,
+                acCategory: effectiveCategory,
                 isTransparent: isNoAc,
                 timeSource,
                 gate: gate,
@@ -282,7 +292,7 @@ const parseTurnaroundDataWithMapping = (rawData: any[], mapping: Mapping, startD
                     destination: undefined,
                     scheduledDeparture: new Date(arrival.getTime() + SINGLE_LEG_DURATION_MS),
                     isDomestic: isArrDom,
-                    parkingPosition: isNoAc ? null : arrPos,
+                    parkingPosition: shouldAssignInitialStand ? arrPos : null,
                 };
                 const departureLeg: Flight = {
                     ...baseFlightData,
@@ -292,7 +302,7 @@ const parseTurnaroundDataWithMapping = (rawData: any[], mapping: Mapping, startD
                     origin: undefined,
                     scheduledArrival: new Date(departure.getTime() - SINGLE_LEG_DURATION_MS),
                     isDomestic: isDepDom,
-                    parkingPosition: isNoAc ? null : depPos,
+                    parkingPosition: shouldAssignInitialStand ? depPos : null,
                 };
                 return [arrivalLeg, departureLeg];
             } else {
@@ -300,7 +310,7 @@ const parseTurnaroundDataWithMapping = (rawData: any[], mapping: Mapping, startD
                     ...baseFlightData,
                     id: `${arrivalFlightNumber || departureFlightNumber}-${arrival.toISOString()}-${i}`,
                     type: 'turnaround',
-                    parkingPosition: isNoAc ? null : (arrPos || depPos || generalPos),
+                    parkingPosition: shouldAssignInitialStand ? (arrPos || depPos || generalPos) : null,
                 };
                 return [turnaroundFlight];
             }
@@ -321,14 +331,14 @@ const parseTurnaroundDataWithMapping = (rawData: any[], mapping: Mapping, startD
                 regNo,
                 scheduledArrival: arrival,
                 scheduledDeparture: new Date(arrival.getTime() + SINGLE_LEG_DURATION_MS),
-                parkingPosition: isNoAc ? null : (arrPos || generalPos),
+                parkingPosition: shouldAssignInitialStand ? (arrPos || generalPos) : null,
                 gate,
                 isDomestic: isArrDom,
                 arrivalIsDomestic: isArrDom,
                 departureIsDomestic: false,
                 departureMode: departureMode || rawTrafficMode,
                 trafficMode: rawTrafficMode,
-                acCategory: isNoAc ? '' : rawAcCategory,
+                acCategory: effectiveCategory,
                 isTransparent: isNoAc,
                 timeSource,
                 raw_data: row,
@@ -352,14 +362,14 @@ const parseTurnaroundDataWithMapping = (rawData: any[], mapping: Mapping, startD
                 regNo,
                 scheduledArrival: new Date(departure.getTime() - SINGLE_LEG_DURATION_MS),
                 scheduledDeparture: departure,
-                parkingPosition: isNoAc ? null : (depPos || generalPos),
+                parkingPosition: shouldAssignInitialStand ? (depPos || generalPos) : null,
                 gate,
                 isDomestic: isDepDom,
                 arrivalIsDomestic: false,
                 departureIsDomestic: isDepDom,
                 departureMode: departureMode || rawTrafficMode,
                 trafficMode: rawTrafficMode,
-                acCategory: isNoAc ? '' : rawAcCategory,
+                acCategory: effectiveCategory,
                 isTransparent: isNoAc,
                 timeSource,
                 raw_data: row,

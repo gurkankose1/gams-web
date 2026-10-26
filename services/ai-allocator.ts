@@ -64,13 +64,16 @@ export const GENERAL_AVIATION_MODES = new Set(['D', 'N']);
 export const SPECIAL_MAINTENANCE_MODES = new Set(['E', 'I', 'K', 'P', 'T', 'W', 'X', 'Z', 'U']);
 
 export function isNoAcFlight(f: Flight): boolean {
-    if (f.isTransparent) return true;
-    if (!f.aircraftType || f.aircraftType.trim() === '' || f.aircraftType.toUpperCase() === 'NAN' || f.aircraftType.toUpperCase() === 'NULL') {
-        return true;
+    const hasReg = !!(f.regNo && f.regNo.trim() !== '' && f.regNo.toUpperCase() !== 'NULL' && f.regNo.toUpperCase() !== 'NONE');
+    const hasType = !!(f.aircraftType && f.aircraftType.trim() !== '' && f.aircraftType.toUpperCase() !== 'NAN' && f.aircraftType.toUpperCase() !== 'NULL');
+
+    // If flight has a valid registration or aircraft type defined in Excel, it is allocatable by AI
+    if (hasReg || hasType) {
+        return false;
     }
-    const cat = f.acCategory ? f.acCategory.trim().toUpperCase() : '';
-    if (cat === 'NAN' || cat === 'NULL') return true;
-    return false;
+
+    if (f.isTransparent) return true;
+    return true;
 }
 
 export function getEffectiveTrafficMode(f: Flight): string {
