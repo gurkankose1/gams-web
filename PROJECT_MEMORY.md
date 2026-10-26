@@ -86,3 +86,9 @@
     - Klasik deterministik açgözlü kuralların ötesine geçen; açığa atılmış geniş gövdeleri, MARS kilitlerini ve atıl körük ceplerini tespit edip dispeçer aklıyla çok adımlı takas zincirleri kuran components/GeminiDeepThinkingModal.tsx arayüze entegre edildi.
     - Önerilen tüm takaslar uygulanmadan önce GAMS AMS kuralları, Cat F A2 kısıtı ve bakım takvimi ile otomatik doğrulanır.
     - Vercel production ortamına başarıyla dağıtıldı (https://gams-web-five.vercel.app).
+
+13. **AI Skor Planla ve Otonom AI Derin Planla Ayrımı (26.10.2026):**
+    - **AI Skor Planla:** Mevcut deterministik kural/açgözlü motoru (0.2 sn) '⚡ AI Skor Planla' olarak yeniden adlandırıldı. Hızlı temel operasyonel yerleşimi gerçekleştirir.
+    - **AI Derin Planla (Otonom Sıfırdan Planlama):** Kullanıcının 'Hibrit istemiyorum, planlamayı komple kendisi sıfırdan yapmalı' talebi doğrultusunda, öneri sunmak yerine seçilen tarih aralığındaki tüm uçuşları sıfırdan otonom olarak stantlara dizen services/gemini-full-planner.ts ve components/GeminiDeepPlanModal.tsx geliştirildi.
+    - **Operasyonel Dalga Tabanlı Dağıtım (Wave Scheduling):** 1000+ uçuş 4 saatlik zaman dilimlerine (dalgalara) ayrılarak Gemini LLM motoruna gönderilir; geniş gövdeler, MARS kilitleri ve iç/dış hat kuralları otonom olarak çözülüp doğrudan Gantt zaman çizelgesine yerleştirilir.
+    - Canlıya alındı: https://gams-web-five.vercel.app
