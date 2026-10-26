@@ -1830,19 +1830,6 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                                 </span>
                             </button>
 
-                            {/* 🧠 GEMINI DERİN DÜŞÜNEN AI (DEEP REASONING) */}
-                            <button 
-                                onClick={() => setIsGeminiDeepPlanOpen(true)}
-                                disabled={flights.length === 0}
-                                className="flex items-center gap-1.5 px-3 py-1.5 font-semibold rounded-lg text-white shadow-md transition duration-200 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer select-none border border-purple-400/50 bg-gradient-to-r from-purple-700 via-indigo-600 to-pink-600 hover:from-purple-600 hover:to-indigo-500 shadow-purple-900/30"
-                                title="Gemini Derin Düşünce Modeli ile insan sezgisi ve çok adımlı takaslarla körük oranını maksimize et"
-                            >
-                                <span className="text-sm animate-pulse">🧠</span>
-                                <span>AI Derin Planla</span>
-                                <span className="text-[10px] font-extrabold px-1.5 py-0.2 rounded bg-purple-300 text-gray-950 shadow-sm">
-                                    Sıfırdan
-                                </span>
-                            </button>
 
                             {/* 🔑 GEMINI API KEY AYARLARI */}
                             <button
