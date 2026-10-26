@@ -577,7 +577,7 @@ export function runFromScratchAllocation(
         if (isNoAcFlight(f)) {
             noAcFlights.push(f);
             flightUpdates.set(f.id, null); // Keep in pool!
-        } else if (f.trafficMode === 'F' || f.departureMode === 'F' || isCargoFlight(f)) {
+        } else if (isCargoModeFlight(f)) {
             cargoFlights.push(f);
         } else if (isGeneralAviationFlight(f)) {
             gaFlights.push(f);
@@ -1160,13 +1160,14 @@ export function runFromScratchAllocation(
                     const directOverlap = sched.intervals.some(i => wArr < i.end && wDep > i.start);
                     if (directOverlap) continue;
 
+                    const blockingFlights: { flight: Flight; subSched: StandSchedule }[] = [];
+
                     // Case A: MARS Center stand blocked by 1 or 2 narrowbodies on subL/subR
                     if (sched.isMarsCenter && sched.marsSubStands) {
                         const [subLName, subRName] = sched.marsSubStands;
                         const schedL = subLName ? topology.get(subLName) : undefined;
                         const schedR = subRName ? topology.get(subRName) : undefined;
 
-                        const blockingFlights: { flight: Flight; subSched: StandSchedule }[] = [];
                         if (schedL) {
                             for (const it of schedL.intervals) {
                                 if (wArr < it.end && wDep > it.start) {
@@ -1183,16 +1184,34 @@ export function runFromScratchAllocation(
                                 }
                             }
                         }
-
-                        if (blockingFlights.length > 0 && blockingFlights.length <= 2) {
-                            // Test if all blocking flights can find open slots on C, E, or other contact stands
-                            const relocations: { flight: Flight; targetSched: StandSchedule }[] = [];
-                            let allCanRelocate = true;
-
-                            // Temporarily remove blocking flights
-                            for (const bf of blockingFlights) {
-                                bf.subSched.intervals = bf.subSched.intervals.filter(i => i.flightId !== bf.flight.id);
+                    } else if (!sched.isMarsCenter && !sched.isMarsSub) {
+                        // Case B: Standalone Wide Stand (Concourse D: D6-D17, B13-B17, F14-F18, A9)
+                        // Açıkta kalan geniş gövde için bağımsız stanttaki dar gövdeleri başka körüklere tahliye et!
+                        for (const it of sched.intervals) {
+                            if (wArr < it.end && wDep > it.start) {
+                                const bf = eligibleFlights.find(f => f.id === it.flightId);
+                                if (bf && !isFlightWide(bf)) {
+                                    blockingFlights.push({ flight: bf, subSched: sched });
+                                } else {
+                                    blockingFlights.length = 0;
+                                    break;
+                                }
                             }
+                        }
+                    }
+
+                    if (blockingFlights.length > 0 && blockingFlights.length <= 2) {
+                        if (blockingFlights.some(bf => isOperationalLockedFlight(bf.flight))) {
+                            continue;
+                        }
+                        // Test if all blocking flights can find open slots on C, E, or other contact stands
+                        const relocations: { flight: Flight; targetSched: StandSchedule }[] = [];
+                        let allCanRelocate = true;
+
+                        // Temporarily remove blocking flights
+                        for (const bf of blockingFlights) {
+                            bf.subSched.intervals = bf.subSched.intervals.filter(i => i.flightId !== bf.flight.id);
+                        }
 
                             for (const bf of blockingFlights) {
                                 const bArr = bf.flight.scheduledArrival.getTime();
@@ -1202,7 +1221,7 @@ export function runFromScratchAllocation(
                                 let foundTarget: StandSchedule | null = null;
                                 for (const bc of bAllowed) {
                                     for (const bs of (CONCOURSE_LAYOUT[bc] || [])) {
-                                        if (bs === sched.stand || bs === subLName || bs === subRName) continue;
+                                        if (bs === sched.stand || (sched.marsSubStands && sched.marsSubStands.includes(bs))) continue;
                                         const bSched = topology.get(bs);
                                         if (bSched && canFitOnStand(bSched, bArr, bDep, false, topology)) {
                                             placeOnStand(bSched, bArr, bDep, bf.flight.id);
@@ -1275,7 +1294,6 @@ export function runFromScratchAllocation(
                                 }
                             }
                         }
-                    }
                 }
                 if (elevated) break;
             }
@@ -1605,7 +1623,7 @@ export function runPreserveAndElevateAllocation(
         if (isNoAcFlight(f)) {
             noAcFlights.push(f);
             flightUpdates.set(f.id, null);
-        } else if (f.trafficMode === 'F' || f.departureMode === 'F' || isCargoFlight(f)) {
+        } else if (isCargoModeFlight(f)) {
             cargoFlights.push(f);
             flightUpdates.set(f.id, f.parkingPosition || null);
         } else if (isGeneralAviationFlight(f)) {

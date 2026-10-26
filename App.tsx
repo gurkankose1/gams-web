@@ -254,12 +254,12 @@ const parseTurnaroundDataWithMapping = (rawData: any[], mapping: Mapping, startD
         const generalPos = extractValidParkingPosition(m.parkingPosition ? row[m.parkingPosition] : null);
         const arrPos = extractValidParkingPosition(
             m.arrParkingPosition ? row[m.arrParkingPosition] : (
-                row['Arr Stand'] || row['ArrStand'] || row['Arr Pos'] || row['ArrPos'] || row['Arr Park'] || row['ArrPark'] || row['Geliş Park']
+                row['Arr Stand'] || row['ArrStand'] || row['Arrival Stand'] || row['ArrivalStand'] || row['Arr Pos'] || row['ArrPos'] || row['Arr Park'] || row['ArrPark'] || row['Geliş Park'] || row['Stand']
             )
         );
         const depPos = extractValidParkingPosition(
             m.depParkingPosition ? row[m.depParkingPosition] : (
-                row['Dep Stand'] || row['DepStand'] || row['Dep Pos'] || row['DepPos'] || row['Dep Park'] || row['DepPark'] || row['Gidiş Park'] || row['Stand_1'] || row['Stand.1'] || row['Pos_1'] || row['Pos.1']
+                row['Departure Stand'] || row['DepartureStand'] || row['Dep Stand'] || row['DepStand'] || row['Dep Pos'] || row['DepPos'] || row['Dep Park'] || row['DepPark'] || row['Gidiş Park'] || row['Stand_1'] || row['Stand.1'] || row['Pos_1'] || row['Pos.1']
             )
         );
 
@@ -744,6 +744,10 @@ const App: React.FC<{ user: User }> = ({ user }) => {
     const flightElements = useRef(new Map<string, HTMLDivElement>());
     const isLocalUpdateRef = useRef(false);
 
+    const [undoStack, setUndoStack] = useState<Flight[][]>([]);
+    const [redoStack, setRedoStack] = useState<Flight[][]>([]);
+    const [committedFlights, setCommittedFlights] = useState<Flight[] | null>(null);
+
     const toggleConcourse = useCallback((concourseName: string) => {
         setCollapsedConcourses(prev => ({
             ...prev,
@@ -751,8 +755,12 @@ const App: React.FC<{ user: User }> = ({ user }) => {
         }));
     }, []);
 
-    const updateDatabase = (newState: { flights: Flight[], maintenanceBlocks: MaintenanceBlock[], gates?: string[] }) => {
+    const updateDatabase = (newState: { flights: Flight[], maintenanceBlocks: MaintenanceBlock[], gates?: string[] }, skipHistory?: boolean) => {
         isLocalUpdateRef.current = true;
+        if (!skipHistory && flights.length > 0) {
+            setUndoStack(prev => [...prev.slice(-30), flights]);
+            setRedoStack([]);
+        }
         setFlights(newState.flights);
         setMaintenanceBlocks(newState.maintenanceBlocks);
         if (newState.gates) {
@@ -873,6 +881,68 @@ const App: React.FC<{ user: User }> = ({ user }) => {
             }
         }, 100);
     }, []);
+
+    const handleUndo = useCallback(() => {
+        if (undoStack.length === 0) return;
+        const prevFlights = undoStack[undoStack.length - 1];
+        setUndoStack(prev => prev.slice(0, prev.length - 1));
+        setRedoStack(prev => [...prev, flights]);
+        updateDatabase({ flights: prevFlights, maintenanceBlocks, gates: gateList }, true);
+        setAllocationMessage("↶ İşlem geri alındı (Undo)");
+        setTimeout(() => setAllocationMessage(null), 3000);
+    }, [undoStack, flights, maintenanceBlocks, gateList]);
+
+    const handleRedo = useCallback(() => {
+        if (redoStack.length === 0) return;
+        const nextFlights = redoStack[redoStack.length - 1];
+        setRedoStack(prev => prev.slice(0, prev.length - 1));
+        setUndoStack(prev => [...prev, flights]);
+        updateDatabase({ flights: nextFlights, maintenanceBlocks, gates: gateList }, true);
+        setAllocationMessage("↷ İşlem yinelendi (Redo)");
+        setTimeout(() => setAllocationMessage(null), 3000);
+    }, [redoStack, flights, maintenanceBlocks, gateList]);
+
+    const handleResetChanges = useCallback(() => {
+        const baseline = committedFlights || (undoStack.length > 0 ? undoStack[0] : null);
+        if (!baseline) return;
+        if (window.confirm("Son kaydedilen/başlangıç durumuna dönmek ve tüm bekleyen değişiklikleri iptal etmek istediğinize emin misiniz?")) {
+            setRedoStack(prev => [...prev, flights]);
+            setUndoStack([]);
+            updateDatabase({ flights: baseline, maintenanceBlocks, gates: gateList }, true);
+            setAllocationMessage("↺ Değişiklikler iptal edildi, önceki plana dönüldü.");
+            setTimeout(() => setAllocationMessage(null), 4000);
+        }
+    }, [committedFlights, undoStack, flights, maintenanceBlocks, gateList]);
+
+    const handleCommitPlan = useCallback(() => {
+        setCommittedFlights(flights);
+        setUndoStack([]);
+        setRedoStack([]);
+        setAllocationMessage("💾 Planlama başarıyla onaylandı ve sabitlendi (Commit).");
+        setTimeout(() => setAllocationMessage(null), 4000);
+    }, [flights]);
+
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            const target = e.target as HTMLElement;
+            if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return;
+
+            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+                if (e.shiftKey) {
+                    e.preventDefault();
+                    handleRedo();
+                } else {
+                    e.preventDefault();
+                    handleUndo();
+                }
+            } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
+                e.preventDefault();
+                handleRedo();
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [handleUndo, handleRedo]);
 
     const handleSelectAllRange = useCallback(() => {
         if (flights.length === 0) return;
@@ -1811,6 +1881,48 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                                 Excel Yükle
                             </label>
                             <input id="file-upload" type="file" className="hidden" onChange={onFileUpload} accept=".xlsx, .xls, .csv" />
+
+                            {/* ↶ UNDO / ↷ REDO / ↺ CANCEL / 💾 COMMIT */}
+                            <div className="flex items-center bg-gray-800/80 p-0.5 rounded-lg border border-gray-700/80 shadow-sm">
+                                <button
+                                    onClick={handleUndo}
+                                    disabled={undoStack.length === 0}
+                                    className="px-2 py-1 text-xs font-semibold rounded text-gray-200 hover:text-white hover:bg-gray-700/80 disabled:opacity-30 disabled:cursor-not-allowed transition flex items-center gap-1 cursor-pointer"
+                                    title="Geri Al (Ctrl+Z)"
+                                >
+                                    <span>↶</span>
+                                    <span>Geri Al</span>
+                                    {undoStack.length > 0 && <span className="text-[10px] bg-gray-700 px-1 rounded text-gray-300">{undoStack.length}</span>}
+                                </button>
+                                <button
+                                    onClick={handleRedo}
+                                    disabled={redoStack.length === 0}
+                                    className="px-2 py-1 text-xs font-semibold rounded text-gray-200 hover:text-white hover:bg-gray-700/80 disabled:opacity-30 disabled:cursor-not-allowed transition flex items-center gap-1 border-l border-gray-700 cursor-pointer"
+                                    title="Yinele (Ctrl+Y)"
+                                >
+                                    <span>↷</span>
+                                    <span>Yinele</span>
+                                    {redoStack.length > 0 && <span className="text-[10px] bg-gray-700 px-1 rounded text-gray-300">{redoStack.length}</span>}
+                                </button>
+                                <button
+                                    onClick={handleResetChanges}
+                                    disabled={undoStack.length === 0 && !committedFlights}
+                                    className="px-2 py-1 text-xs font-semibold rounded text-red-300 hover:text-red-100 hover:bg-red-950/60 disabled:opacity-30 disabled:cursor-not-allowed transition flex items-center gap-1 border-l border-gray-700 cursor-pointer"
+                                    title="Tüm bekleyen değişiklikleri iptal et ve önceki duruma dön (Cancel/Reset)"
+                                >
+                                    <span>↺</span>
+                                    <span>İptal Et</span>
+                                </button>
+                                <button
+                                    onClick={handleCommitPlan}
+                                    disabled={flights.length === 0}
+                                    className="px-2.5 py-1 text-xs font-semibold rounded bg-blue-600/80 hover:bg-blue-500 text-white transition flex items-center gap-1 border-l border-gray-700 shadow-sm cursor-pointer"
+                                    title="Mevcut planlamayı onayla ve sabitle (Commit)"
+                                >
+                                    <span>💾</span>
+                                    <span>Onayla</span>
+                                </button>
+                            </div>
 
                             {/* 🟠 TÜMÜNÜ HAVUZA ÇEK (UNALLOCATE ALL) */}
                             <button 

@@ -102,3 +102,13 @@
       - Aksam 15:00 ve sonrasinda gelen, 7-11 saat (ortalama 8-10 saat) kalan ve gece 00:00 - 04:30 arasi kalkan genis govdeli ucaklar (B77W, B789, A350 vb.) icin kopruye planlama denemesi acildi.
       - **Yalnizca Standalone Kopru Sarti:** Bu ucuslar KESINLIKLE MARS Center stantlarina (altinda L/R dar govde alt stantlari olan stantlar) verilemez; dar govde kapasitesini oldurmemek icin YALNIZCA bagimsiz standalone genis govde stantlarina (Concourse D: D6-D17, Concourse B: B13-B17, Concourse F: F14-F18, Concourse A: A9) planlanir.
       - Pass F (takas ve tahliye) motorunda da korunarak aciga dusurulmeleri engellendi.
+
+15. **MOD H Kargo Engeli, Tow Sonrasi Bosaltma & Undo/Redo/Commit Kontrolleri (26.10.2026):**
+    - **MOD H Kargo Kurali:** Mod H (Charter Kargo / Posta) ucuslari isCargoModeFlight filtresine baglandi. Kopruye hicbir sekilde alinmaz, dogrudan Kargo Apronuna (K stantlari) ve aciga yonlendirilir.
+    - **Tow / Cekilme Stand Tespiti:** Excel aktariminda Departure Stand ve Arrival Stand basliklari otomatik tanimlandi. Ucus geldigi korukte sadece 60 dakika kalir, ardindan stand aninda bosa cikar ve arkasindan gelen yeni ucus ust uste binmeden hemen o standa planlanabilir.
+    - **Geri Al (Undo) / Yinele (Redo) / Iptal (Cancel) / Onayla (Commit) Butonlari:**
+      - Zaman cizelgesi ve havuz ustune Undo (Ctrl+Z), Redo (Ctrl+Y), Iptal Et (Reset) ve Onayla (Commit) buton grubu entegre edildi.
+      - Kullanici manuel tasarimlari istedigi gibi deneyebilir, yanlis hamleleri aninda geri alabilir veya tek tikla ilk plana sifirlayabilir.
+    - **Kademeli & Transaksiyonel Genis Govde Yukseltme Motoru (Standalone + MARS Elevation):**
+      - Acikta kalan genis govdeler icin sadece MARS Center stantlari degil, Concourse D (D6-D17), Concourse B (B13-B17) gibi standalone bagimsiz genis govde stantlari da takas taramasina alindi.
+      - Eger standalone standda dar govde varsa ve baska bir koruge tasinabiliyorsa, dar govde tahliye edilir ve aciktaki genis govde koruge cekilir. Biri bile tasinamiyorsa tum islem aninda iptal edilir (Rollback).
