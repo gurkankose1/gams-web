@@ -24,6 +24,7 @@ import { runAiBridgeAllocation, calculateBridgeUtilization, hasMaintenanceConfli
 import { getAircraftCategory, isContactStand } from './services/ams-rules.ts';
 import AiAllocationReportModal, { AiReportData } from './components/AiAllocationReportModal.tsx';
 import AiCopilotModal from './components/AiCopilotModal.tsx';
+import DivertCapacityModal from './components/DivertCapacityModal.tsx';
 import GeminiSettingsModal from './components/GeminiSettingsModal.tsx';
 import GeminiDeepThinkingModal from './components/GeminiDeepThinkingModal.tsx';
 import GeminiDeepPlanModal from './components/GeminiDeepPlanModal.tsx';
@@ -704,6 +705,7 @@ const App: React.FC<{ user: User }> = ({ user }) => {
     const [aiReportData, setAiReportData] = useState<AiReportData | null>(null);
     const [isAiReportModalOpen, setIsAiReportModalOpen] = useState(false);
     const [isCopilotOpen, setIsCopilotOpen] = useState(false);
+    const [isDivertModalOpen, setIsDivertModalOpen] = useState(false);
     const [isGeminiThinkingOpen, setIsGeminiThinkingOpen] = useState(false);
     const [isGeminiDeepPlanOpen, setIsGeminiDeepPlanOpen] = useState(false);
     const [isGeminiSettingsOpen, setIsGeminiSettingsOpen] = useState(false);
@@ -1969,6 +1971,19 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                                 </span>
                             </button>
 
+                            {/* 🚨 DİNAMİK DİVERT & KRİZ KAPASİTE (DAC) */}
+                            <button
+                                onClick={() => setIsDivertModalOpen(true)}
+                                className="flex items-center gap-1.5 px-3 py-1.5 font-semibold rounded-lg text-white shadow-md transition duration-200 cursor-pointer select-none border border-cyan-400/50 bg-gradient-to-r from-cyan-700 via-blue-700 to-indigo-700 hover:from-cyan-600 hover:to-blue-600 shadow-cyan-900/40"
+                                title="Çevre meydan kapanmaları için T+4, T+8, T+12 saatlik boş stand ve divert kabul kapasitesini aç"
+                            >
+                                <span className="text-sm">🚨</span>
+                                <span>Divert & Kriz Kapasite</span>
+                                <span className="text-[10px] font-extrabold px-1.5 py-0.2 rounded bg-cyan-300 text-gray-950 shadow-sm">
+                                    T+4 / T+8
+                                </span>
+                            </button>
+
 
                             {/* 🔑 GEMINI API KEY AYARLARI */}
                             <button
@@ -2260,6 +2275,14 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                 </ErrorBoundary>
             )}
             <AiCopilotModal isOpen={isCopilotOpen} onClose={() => setIsCopilotOpen(false)} flights={flights} maintenanceBlocks={maintenanceBlocks} onApplyUpdates={handleCopilotUpdates} />
+            <DivertCapacityModal 
+                isOpen={isDivertModalOpen} 
+                onClose={() => setIsDivertModalOpen(false)} 
+                flights={flights} 
+                maintenanceBlocks={maintenanceBlocks} 
+                startDate={startDate} 
+                endDate={endDate} 
+            />
             {isGeminiThinkingOpen && (
                 <ErrorBoundary fallbackTitle="Gemini Derin Düşünce Modalı Hatası">
                     <GeminiDeepThinkingModal

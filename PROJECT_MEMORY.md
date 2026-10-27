@@ -135,3 +135,17 @@
       - Uçuşun kalkış zamanı (`scheduledDeparture`), seçili `[startDate, endDate]` zaman penceresinde değilse gelire eklenmez. Gece yarısından sonra ertesi güne sarkan uçuşlar gerçek kalkış günlerinde değerlendirilir.
     - **Görsel Rozet ve Göstergeler:**
       - Alt gelir çubuğunun sağ tarafındaki "PLANLI TOPLAM GELİR" kutucuğuna ve sol istatistik rozetine seçili periyodu anlık gösteren dinamik tarih etiketi eklendi (`📅 26 Eki` veya `📅 01 Eki - 31 Eki`).
+
+19. **Dinamik Divert & Apron Kapasite Karar Destek Modülü (DAC-Engine) (27.10.2026):**
+    - **Kriz Senaryoları & İş İhtiyacı:** Çevre meydan kapalılıklarında (sis, kar, acil durumlar) havalimanına gelebilecek divert dalgalarında T+4, T+8, T+12 ve T+24 saatlik pencerelerde anlık kaç uçak kabul edilebileceğini öngörememe sorunu çözüldü.
+    - **DAC-Engine (services/divert-capacity-engine.ts):**
+      - ICAO Kategori Sınıflandırması: Cat C (Dar Gövde - A320/B738), Cat D/E (Geniş Gövde - A330/B777/A350), Cat F (Heavy - A380/B748).
+      - Kayar Pencereler (Sliding Windows): T+4h (Kısa Vade), T+8h (Yatı İhtimali), T+12h (Uzun Vade), T+24h (Tam Gün).
+      - Dwell Time Yönetimi: 2 Saat (Yakıt / Quick-Turn), 4 Saat (Standart), 8 Saat (Ekip Mesai / Yatı), 12 Saat (Geceleme).
+      - MARS Çakışma & Feda Yönetimi: Geniş gövde divertlerin öncelikle Concourse D (D6-D17) ve B (B13-B17) gibi standalone stantlara verilmesiyle MARS L/R dar gövde kapasitesinin korunması.
+    - **"What-If" Senaryo Testi Simülatörü:**
+      - Kullanıcı anlık olarak "4 Cat C ve 2 Cat E divert uçak alabilir miyiz?" sorgusunu çalıştırır.
+      - Sistem tarifeli planı bozmadan onay (APPROVED / PARTIAL / REJECTED) verir ve tahsis edilecek stantları (örn. Stand 115, Stand 215) listeler.
+    - **Kriz Yönetim Arayüzü (components/DivertCapacityModal.tsx):**
+      - Üst menüde "🚨 Divert & Kriz Kapasite" butonu.
+      - T+4, T+8, T+12 kartları, saatlik ısı haritası, müsait stand rehberi ve tek tıkla OCC/IT'ye gönderilecek resmi metin raporu kopyalama butonu.
