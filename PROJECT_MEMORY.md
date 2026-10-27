@@ -149,3 +149,14 @@
     - **Kriz Yönetim Arayüzü (components/DivertCapacityModal.tsx):**
       - Üst menüde "🚨 Divert & Kriz Kapasite" butonu.
       - T+4, T+8, T+12 kartları, saatlik ısı haritası, müsait stand rehberi ve tek tıkla OCC/IT'ye gönderilecek resmi metin raporu kopyalama butonu.
+
+20. **Havuzdaki Tarifeli Uçaklar, Concourse Dağılımı ve Max WB/NB Ayrımı (27.10.2026):**
+    - **Kullanıcı Talebi:**
+      1. Atama bekleyen havuzundaki tarifeli uçakları da hesaplamaya dahil et; brüt boşluktan havuz ihtiyacını düşerek GERÇEK NET kabul kontenjanını ver.
+      2. Apron/Concourse bazlı detaylı kırılım sun (örn. Apron 100'ler: 12 dar, 4 geniş; Apron 200'ler: 4 dar, 2 geniş vb.).
+      3. Max WB (Geniş Gövde) ve Max NB (Dar Gövde) uçak senaryolarını ve Standalone vs MARS boş pozisyonlarını (4 saat, 8 saat, 12 saat) ayrı ayrı göster.
+    - **Geliştirmeler:**
+      - **PoolDemand Entegrasyonu:** İlgili zaman penceresindeki atama bekleyen uçuşlar (`poolDemand.catCCount`, `poolDemand.catECount`) tespit edilir ve `netDivertCatC` ile `netDivertCatE` formülünden düşülür.
+      - **ConcourseCapacityBreakdown:** Apron 1 (100'ler), Apron 2 (200'ler), Apron 3 (300'ler), Concourse A..G, Kargo Apronu ve De-icing için anlık dar gövde, geniş gövde, standalone ve MARS sayıları hesaplanıp "📍 Apron & Concourse Dağılımı" sekmesinde görselleştirildi.
+      - **Max WB & Max NB & Standalone vs MARS:** Üst KPI kartlarına ve karşılaştırma tablosuna Max NB, Max WB, Standalone WB ve MARS WB sayıları (4h, 8h, 12h, 24h) eklendi.
+      - **Rapor Formatı:** OCC/IT için kopyalanan kriz raporuna havuz ihtiyacı, concourse kırılımı ve standalone tavsiyeleri dahil edildi.

@@ -24,7 +24,7 @@ export const DivertCapacityModal: React.FC<DivertCapacityModalProps> = ({
     startDate
 }) => {
     const [dwellHours, setDwellHours] = useState<DivertDwellTimeHours>(4);
-    const [activeTab, setActiveTab] = useState<'MATRIX' | 'HOURLY' | 'WHAT_IF' | 'STAND_LIST'>('MATRIX');
+    const [activeTab, setActiveTab] = useState<'MATRIX' | 'CONCOURSES' | 'HOURLY' | 'WHAT_IF' | 'STAND_LIST'>('MATRIX');
     
     // What-If Simulator Form States
     const [simCatC, setSimCatC] = useState<number>(4);
@@ -90,7 +90,7 @@ export const DivertCapacityModal: React.FC<DivertCapacityModalProps> = ({
     const w12 = report.windows[12];
     const w24 = report.windows[24];
 
-    // Filter available stands for Tab 4
+    // Filter available stands for Stand List Tab
     const filteredStands = report.allStandsSnapshot.filter(s => {
         if (standFilterCategory !== 'ALL' && s.maxCategory !== standFilterCategory) return false;
         if (standFilterZone === 'BRIDGE' && !s.isBridge) return false;
@@ -122,9 +122,14 @@ export const DivertCapacityModal: React.FC<DivertCapacityModalProps> = ({
                                 <span className="px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-400/40 text-[10px] font-black uppercase tracking-wider">
                                     Kriz Karar Destek
                                 </span>
+                                {w4.poolDemand.totalUnassigned > 0 && (
+                                    <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-400/40 text-[10px] font-bold">
+                                        ⚠️ Havuzda {w4.poolDemand.totalUnassigned} Tarifeli Uçak Var (Düşüldü)
+                                    </span>
+                                )}
                             </div>
                             <p className="text-xs text-gray-400">
-                                Çevre meydan kapalılıklarında T+4, T+8, T+12 ve T+24 saatlik net boş stant ve uçak kabul projeksiyonu
+                                Çevre meydan kapalılıklarında T+4, T+8, T+12 saatlik net boş stant, Max WB/NB ve Concourse kırılımları
                             </p>
                         </div>
                     </div>
@@ -139,7 +144,7 @@ export const DivertCapacityModal: React.FC<DivertCapacityModalProps> = ({
                             }`}
                             title="Hazır kriz kapasite raporunu panoya kopyala (OCC/IT için)"
                         >
-                            <span>{copySuccess ? '✓ Kopyalandı' : '📋 Raporu Kopyala'}</span>
+                            <span>{copySuccess ? '✓ Kopyalandı' : '📋 Raporu Kopyala (OCC/IT)'}</span>
                         </button>
                         <button
                             onClick={onClose}
@@ -153,11 +158,20 @@ export const DivertCapacityModal: React.FC<DivertCapacityModalProps> = ({
 
                 {/* 2. Parameters & Sliding Dwell Time Bar */}
                 <div className="px-6 py-2.5 bg-gray-900/90 border-b border-gray-800 flex flex-wrap items-center justify-between gap-3 text-xs">
-                    <div className="flex items-center gap-2">
-                        <span className="text-gray-400 font-semibold">📅 Referans Zaman:</span>
-                        <span className="font-mono bg-gray-800 px-2 py-1 rounded text-cyan-300 font-bold border border-gray-700">
-                            {report.referenceTime.toLocaleDateString('tr-TR')} {report.referenceTime.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
-                        </span>
+                    <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-2">
+                            <span className="text-gray-400 font-semibold">📅 Referans Zaman:</span>
+                            <span className="font-mono bg-gray-800 px-2 py-1 rounded text-cyan-300 font-bold border border-gray-700">
+                                {report.referenceTime.toLocaleDateString('tr-TR')} {report.referenceTime.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                        </div>
+
+                        {/* Havuz Durumu Bilgisi */}
+                        <div className="flex items-center gap-1.5 bg-gray-950/80 px-2.5 py-1 rounded-lg border border-gray-800 text-[11px]">
+                            <span className="text-amber-400 font-bold">🏊‍♂️ Atama Bekleyen Havuz:</span>
+                            <span className="text-white font-extrabold">{w4.poolDemand.totalUnassigned} Uçuş</span>
+                            <span className="text-gray-400">({w4.poolDemand.catCCount} Dar / {w4.poolDemand.catECount} Geniş)</span>
+                        </div>
                     </div>
 
                     {/* Dwell Time Selector */}
@@ -183,15 +197,19 @@ export const DivertCapacityModal: React.FC<DivertCapacityModalProps> = ({
                     </div>
                 </div>
 
-                {/* 3. Top KPI Cards: T+4, T+8, T+12, T+24 */}
-                <div className="px-6 py-4 grid grid-cols-1 md:grid-cols-4 gap-3 bg-gray-950/40 border-b border-gray-800">
+                {/* 3. Top KPI Cards: T+4, T+8, T+12, T+24 (With Gross, Pool Deduction, and NET Divert Capacity) */}
+                <div className="px-6 py-3.5 grid grid-cols-1 md:grid-cols-4 gap-3 bg-gray-950/40 border-b border-gray-800">
                     {[w4, w8, w12, w24].map((w, idx) => {
-                        const isCritical = w.pureCatCCount + w.pureCatECount < 10;
-                        const isModerate = w.pureCatCCount + w.pureCatECount < 25;
-                        const badgeColor = isCritical ? 'text-red-400 border-red-500/40 bg-red-950/40' : isModerate ? 'text-amber-300 border-amber-500/40 bg-amber-950/40' : 'text-emerald-300 border-emerald-500/40 bg-emerald-950/40';
+                        const isCritical = w.netDivertCatC + w.netDivertCatE < 5;
+                        const isModerate = w.netDivertCatC + w.netDivertCatE < 15;
+                        const badgeColor = isCritical 
+                            ? 'text-red-400 border-red-500/40 bg-red-950/40' 
+                            : isModerate 
+                            ? 'text-amber-300 border-amber-500/40 bg-amber-950/40' 
+                            : 'text-emerald-300 border-emerald-500/40 bg-emerald-950/40';
 
                         return (
-                            <div key={w.windowHours} className={`p-3.5 rounded-xl border bg-gray-900/80 shadow-md ${idx === 0 ? 'ring-1 ring-cyan-500/30' : ''}`}>
+                            <div key={w.windowHours} className={`p-3 rounded-xl border bg-gray-900/80 shadow-md ${idx === 0 ? 'ring-1 ring-cyan-500/40' : ''}`}>
                                 <div className="flex items-center justify-between mb-2">
                                     <span className="font-black text-xs text-cyan-300 uppercase tracking-wider">
                                         {w.windowLabel}
@@ -200,29 +218,35 @@ export const DivertCapacityModal: React.FC<DivertCapacityModalProps> = ({
                                         {isCritical ? '🔴 DOYGUN' : isModerate ? '🟡 ORTA' : '🟢 MÜSAİT'}
                                     </span>
                                 </div>
+
+                                {/* NET DİVERT KABULÜ */}
                                 <div className="space-y-1.5 text-xs">
-                                    <div className="flex justify-between items-baseline">
-                                        <span className="text-gray-400">Cat C (Dar Gövde):</span>
-                                        <span className="font-mono font-black text-sm text-white">
-                                            {w.pureCatCCount} <span className="text-[10px] text-gray-500 font-normal">stand</span>
+                                    <div className="flex justify-between items-baseline bg-gray-950/60 px-2 py-1 rounded border border-gray-800">
+                                        <span className="text-emerald-400 font-bold">NET Max NB (Dar):</span>
+                                        <span className="font-mono font-black text-sm text-emerald-300">
+                                            {w.netDivertCatC} <span className="text-[10px] text-gray-500 font-normal">uçak</span>
                                         </span>
                                     </div>
-                                    <div className="flex justify-between items-baseline">
-                                        <span className="text-gray-400">Cat D/E (Geniş Gövde):</span>
+                                    <div className="flex justify-between items-baseline bg-gray-950/60 px-2 py-1 rounded border border-gray-800">
+                                        <span className="text-amber-400 font-bold">NET Max WB (Geniş):</span>
                                         <span className="font-mono font-black text-sm text-amber-300">
-                                            {w.pureCatECount} <span className="text-[10px] text-gray-500 font-normal">stand</span>
+                                            {w.netDivertCatE} <span className="text-[10px] text-gray-500 font-normal">uçak</span>
                                         </span>
                                     </div>
-                                    <div className="flex justify-between items-baseline">
-                                        <span className="text-gray-400">Cat F (Heavy / A380):</span>
-                                        <span className="font-mono font-black text-xs text-purple-300">
-                                            {w.catFCount} <span className="text-[10px] text-gray-500 font-normal">stand</span>
+
+                                    {/* Stand Type Breakdown (Standalone vs MARS) */}
+                                    <div className="pt-1.5 border-t border-gray-800/80 flex items-center justify-between text-[11px] text-gray-400">
+                                        <span title="Dar gövde kapasitesini öldürmeyen bağımsız geniş gövde stantları">
+                                            🛡️ Standalone WB: <strong className="text-white">{w.standaloneFreeCatE}</strong>
+                                        </span>
+                                        <span title="L ve R alt stantları olan MARS Center geniş gövde stantları">
+                                            ⚖️ MARS WB: <strong className="text-white">{w.marsFreeCatE}</strong>
                                         </span>
                                     </div>
-                                    <div className="pt-2 border-t border-gray-800 flex items-center justify-between text-[11px] text-gray-400">
-                                        <span>🌉 {w.bridgeStandCount} Körük</span>
-                                        <span>🚌 {w.remoteStandCount} Açık</span>
-                                        <span>📦 {w.cargoStandCount} Kargo</span>
+
+                                    <div className="flex items-center justify-between text-[10px] text-gray-500">
+                                        <span>Brüt Boş: {w.grossCatCCount + w.grossCatECount} Stand</span>
+                                        <span>Tarifeli Havuz: -{w.poolDemand.totalUnassigned} Uçak</span>
                                     </div>
                                 </div>
                             </div>
@@ -240,7 +264,17 @@ export const DivertCapacityModal: React.FC<DivertCapacityModalProps> = ({
                                 : 'border-transparent text-gray-400 hover:text-gray-200'
                         }`}
                     >
-                        <span>📊 Kapasite Matrisi & MARS</span>
+                        <span>📊 Kapasite Matrisi & Max Senaryolar</span>
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('CONCOURSES')}
+                        className={`py-2.5 px-3 font-bold text-xs border-b-2 transition select-none flex items-center gap-1.5 ${
+                            activeTab === 'CONCOURSES'
+                                ? 'border-cyan-400 text-cyan-300'
+                                : 'border-transparent text-gray-400 hover:text-gray-200'
+                        }`}
+                    >
+                        <span>📍 Apron & Concourse Dağılımı ({w4.concourseBreakdown.length})</span>
                     </button>
                     <button
                         onClick={() => setActiveTab('HOURLY')}
@@ -277,98 +311,212 @@ export const DivertCapacityModal: React.FC<DivertCapacityModalProps> = ({
                 {/* 5. Tab Content Body */}
                 <div className="p-6 overflow-y-auto flex-1 space-y-4">
                     
-                    {/* TAB 1: MATRIX & MARS STRATEGY */}
+                    {/* TAB 1: MATRIX & MAX TRADEOFF SCENARIOS */}
                     {activeTab === 'MATRIX' && (
                         <div className="space-y-4">
-                            <div className="bg-gray-900/90 border border-gray-800 rounded-xl p-4">
-                                <h3 className="text-sm font-bold text-white mb-2 flex items-center gap-2">
-                                    <span>🧠 MARS Dengelemesi ve Dar Gövde Koruma Stratejisi</span>
-                                </h3>
-                                <p className="text-xs text-gray-300 leading-relaxed">
-                                    Havalimanındaki MARS stantlarına (altında L ve R dar gövde pozisyonu bulunan stantlar) geniş gövde divert uçağı verildiğinde, 
-                                    <strong> 2 adet Cat C (A320/B738) pozisyonu aynı anda kilitlenir</strong>.
-                                    Bu nedenle divert krizinde geniş gövdeler öncelikle Concourse D (D6-D17) ve Concourse B (B13-B17) gibi 
-                                    <strong> Standalone (bağımsız)</strong> geniş gövde stantlarına yönlendirilmelidir.
-                                </p>
+                            {/* Havuz Etkisi Açıklama Kartı */}
+                            <div className="bg-gradient-to-r from-amber-950/40 via-gray-900 to-amber-950/20 border border-amber-500/40 rounded-xl p-4 flex items-start gap-3">
+                                <span className="text-xl">💡</span>
+                                <div className="text-xs space-y-1">
+                                    <div className="font-bold text-amber-300 text-sm">
+                                        Atama Bekleyen Havuzundaki Tarifeli Uçaklar ve Gerçek Net Kapasite
+                                    </div>
+                                    <p className="text-gray-300 leading-relaxed">
+                                        Meydanda fiziksel olarak boş stand bulunsa bile, <strong>atama bekleyen havuzunda henüz stant verilmemiş {w4.poolDemand.totalUnassigned} adet tarifeli uçuş</strong> bulunmaktadır ({w4.poolDemand.catCCount} Dar Gövde, {w4.poolDemand.catECount} Geniş Gövde). 
+                                        Sistem bu uçakları öncelikli rezerve ederek havayollarına <strong>yanıltıcı kapasite vermez</strong>; brüt boşluktan havuz ihtiyacını düşerek <strong>GERÇEK NET DİVERT KABUL SAYISINI</strong> hesaplar.
+                                    </p>
+                                </div>
                             </div>
 
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                {/* Pure vs Balanced Table */}
-                                <div className="bg-gray-900/80 border border-gray-800 rounded-xl p-4">
-                                    <h4 className="text-xs font-bold text-cyan-300 uppercase tracking-wider mb-3">
-                                        📌 T+4 Saat Kapasite Dengesi
-                                    </h4>
-                                    <table className="w-full text-xs text-left">
-                                        <thead className="text-[11px] text-gray-400 border-b border-gray-800">
-                                            <tr>
-                                                <th className="pb-2">Kategori</th>
-                                                <th className="pb-2">Saf Kontenjan</th>
-                                                <th className="pb-2">Dengeli Kapasite</th>
-                                                <th className="pb-2">Durum</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-gray-800">
-                                            <tr>
-                                                <td className="py-2.5 font-semibold text-white">Cat C (Dar Gövde)</td>
-                                                <td className="py-2.5 font-mono text-cyan-300 font-bold">{w4.pureCatCCount} Stand</td>
-                                                <td className="py-2.5 font-mono text-emerald-400 font-bold">{w4.balancedCatCAllocated} Stand</td>
-                                                <td className="py-2.5 text-gray-400 text-[11px]">MARS Korumalı</td>
-                                            </tr>
-                                            <tr>
-                                                <td className="py-2.5 font-semibold text-white">Cat D/E (Geniş Gövde)</td>
-                                                <td className="py-2.5 font-mono text-amber-300 font-bold">{w4.pureCatECount} Stand</td>
-                                                <td className="py-2.5 font-mono text-amber-300 font-bold">{w4.balancedCatEAllocated} Stand</td>
-                                                <td className="py-2.5 text-gray-400 text-[11px]">Standalone Öncelikli</td>
-                                            </tr>
-                                            <tr>
-                                                <td className="py-2.5 font-semibold text-white">Cat F (Heavy)</td>
-                                                <td className="py-2.5 font-mono text-purple-300 font-bold">{w4.catFCount} Stand</td>
-                                                <td className="py-2.5 font-mono text-purple-300 font-bold">{w4.catFCount} Stand</td>
-                                                <td className="py-2.5 text-gray-400 text-[11px]">A2, 215, B1 vb.</td>
-                                            </tr>
-                                        </tbody>
-                                    </table>
-                                </div>
-
-                                {/* Regional Breakdown */}
-                                <div className="bg-gray-900/80 border border-gray-800 rounded-xl p-4">
-                                    <h4 className="text-xs font-bold text-cyan-300 uppercase tracking-wider mb-3">
-                                        🗺️ Bölgesel Boşluk Dağılımı (T+4 Saat)
-                                    </h4>
-                                    <div className="space-y-3 text-xs">
-                                        <div>
-                                            <div className="flex justify-between mb-1">
-                                                <span className="text-gray-300">🌉 Köprülü İskeleler (Pier A-G)</span>
-                                                <span className="font-bold text-cyan-300">{w4.bridgeStandCount} Stand</span>
-                                            </div>
-                                            <p className="text-[11px] text-gray-500">Tarifeli yolcu uçuşları için ayrılması tavsiye edilir.</p>
-                                        </div>
-                                        <div>
-                                            <div className="flex justify-between mb-1">
-                                                <span className="text-gray-300">🚌 Açık Uzak Apronlar (Apron 1-5)</span>
-                                                <span className="font-bold text-emerald-400">{w4.remoteStandCount} Stand</span>
-                                            </div>
-                                            <p className="text-[11px] text-gray-500">Yolcu indirmeyen ve yakıt alıp gidecek divertler için idealdir.</p>
-                                        </div>
-                                        <div>
-                                            <div className="flex justify-between mb-1">
-                                                <span className="text-gray-300">📦 Kargo Apronu (K Stantları)</span>
-                                                <span className="font-bold text-amber-300">{w4.cargoStandCount} Stand</span>
-                                            </div>
-                                            <p className="text-[11px] text-gray-500">Geniş gövde kargo veya acil divert yığılmasında kullanılabilir.</p>
-                                        </div>
+                            {/* Max WB vs Max NB vs Standalone / MARS Cards */}
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
+                                {/* Max NB Card */}
+                                <div className="bg-gray-900/80 border border-emerald-500/40 rounded-xl p-4 shadow">
+                                    <div className="flex items-center justify-between mb-2">
+                                        <span className="text-xs font-black text-emerald-300 uppercase tracking-wider">
+                                            ✈️ MAX DAR GÖVDE (NB) SENARYOSU
+                                        </span>
+                                        <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-400/30 font-bold">
+                                            A320 / B738
+                                        </span>
+                                    </div>
+                                    <div className="text-2xl font-black text-white font-mono mb-2">
+                                        {w4.netDivertCatC} <span className="text-xs font-normal text-emerald-400">Net Uçak</span>
+                                    </div>
+                                    <p className="text-[11px] text-gray-400 leading-normal">
+                                        Tüm MARS stantları (L ve R) dar gövdeye ayrılırsa ve havuzdaki {w4.poolDemand.catCCount} dar gövde planlandıktan sonra kabul edilebilecek <strong>azami Cat C divert</strong> sayısıdır.
+                                    </p>
+                                    <div className="mt-3 pt-2 border-t border-gray-800 text-[11px] text-gray-400 flex justify-between">
+                                        <span>Brüt Boş: {w4.maxNarrowBodyCapacity} Stand</span>
+                                        <span>Havuz: -{w4.poolDemand.catCCount} Uçak</span>
                                     </div>
                                 </div>
+
+                                {/* Max WB Card */}
+                                <div className="bg-gray-900/80 border border-amber-500/40 rounded-xl p-4 shadow">
+                                    <div className="flex items-center justify-between mb-2">
+                                        <span className="text-xs font-black text-amber-300 uppercase tracking-wider">
+                                            🛫 MAX GENİŞ GÖVDE (WB) SENARYOSU
+                                        </span>
+                                        <span className="text-[10px] px-2 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-400/30 font-bold">
+                                            A330 / B777 / A350
+                                        </span>
+                                    </div>
+                                    <div className="text-2xl font-black text-white font-mono mb-2">
+                                        {w4.netDivertCatE} <span className="text-xs font-normal text-amber-400">Net Uçak</span>
+                                    </div>
+                                    <p className="text-[11px] text-gray-400 leading-normal">
+                                        Hem Standalone hem de tüm MARS Center pozisyonları geniş gövdeye ayrılırsa (L/R alt stantları kilitlenir) kabul edilebilecek <strong>azami Cat E divert</strong> sayısıdır.
+                                    </p>
+                                    <div className="mt-3 pt-2 border-t border-gray-800 text-[11px] text-gray-400 flex justify-between">
+                                        <span>Brüt Boş: {w4.maxWideBodyCapacity} Stand</span>
+                                        <span>Havuz: -{w4.poolDemand.catECount} Uçak</span>
+                                    </div>
+                                </div>
+
+                                {/* Standalone vs MARS Breakdown */}
+                                <div className="bg-gray-900/80 border border-cyan-500/40 rounded-xl p-4 shadow">
+                                    <div className="flex items-center justify-between mb-2">
+                                        <span className="text-xs font-black text-cyan-300 uppercase tracking-wider">
+                                            🛡️ STANDALONE vs MARS (T+4h)
+                                        </span>
+                                        <span className="text-[10px] px-2 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-400/30 font-bold">
+                                            Stant Tipi
+                                        </span>
+                                    </div>
+                                    <div className="space-y-2 mt-2 text-xs">
+                                        <div className="flex justify-between items-baseline">
+                                            <span className="text-gray-300 font-semibold">Standalone WB (Saf):</span>
+                                            <span className="font-mono font-black text-white text-base">{w4.standaloneFreeCatE} Stand</span>
+                                        </div>
+                                        <div className="flex justify-between items-baseline">
+                                            <span className="text-gray-300 font-semibold">MARS Center WB:</span>
+                                            <span className="font-mono font-black text-amber-300 text-base">{w4.marsFreeCatE} Stand</span>
+                                        </div>
+                                        <div className="flex justify-between items-baseline">
+                                            <span className="text-gray-300 font-semibold">MARS Alt Stand (L/R):</span>
+                                            <span className="font-mono font-black text-cyan-300 text-base">{w4.marsFreeSubStands} Stand</span>
+                                        </div>
+                                    </div>
+                                    <p className="mt-2 text-[10px] text-gray-500">
+                                        * Standalone stantlar doldurulursa dar gövde kapasitesi feda edilmez.
+                                    </p>
+                                </div>
+                            </div>
+
+                            {/* 4 Saat, 8 Saat, 12 Saat Standalone vs MARS Karşılaştırma Tablosu */}
+                            <div className="bg-gray-900/90 border border-gray-800 rounded-xl p-4">
+                                <h4 className="text-xs font-bold text-cyan-300 uppercase tracking-wider mb-3 flex items-center justify-between">
+                                    <span>⏱️ 4 Saat / 8 Saat / 12 Saat / 24 Saat Karakteristik Kapasite Matrisi</span>
+                                    <span className="text-[11px] text-gray-400 font-normal">Dwell Time: {dwellHours} Saat</span>
+                                </h4>
+                                <table className="w-full text-xs text-left">
+                                    <thead className="text-[11px] text-gray-400 border-b border-gray-800 bg-gray-950/40">
+                                        <tr>
+                                            <th className="py-2.5 px-3">Zaman Penceresi</th>
+                                            <th className="py-2.5 px-3">NET Max NB (Dar)</th>
+                                            <th className="py-2.5 px-3">NET Max WB (Geniş)</th>
+                                            <th className="py-2.5 px-3">Standalone WB Boş</th>
+                                            <th className="py-2.5 px-3">MARS Center WB Boş</th>
+                                            <th className="py-2.5 px-3">Tarifeli Havuz</th>
+                                            <th className="py-2.5 px-3">Bölgesel (Körük / Açık)</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-800">
+                                        {[w4, w8, w12, w24].map(w => (
+                                            <tr key={w.windowHours} className="hover:bg-gray-800/40 transition">
+                                                <td className="py-3 px-3 font-bold text-white font-mono">{w.windowLabel}</td>
+                                                <td className="py-3 px-3 font-mono font-bold text-emerald-400 text-sm">{w.netDivertCatC} Uçak</td>
+                                                <td className="py-3 px-3 font-mono font-bold text-amber-300 text-sm">{w.netDivertCatE} Uçak</td>
+                                                <td className="py-3 px-3 font-mono font-semibold text-white">{w.standaloneFreeCatE} Stand</td>
+                                                <td className="py-3 px-3 font-mono font-semibold text-amber-200">{w.marsFreeCatE} Stand</td>
+                                                <td className="py-3 px-3 text-gray-400 font-mono">
+                                                    {w.poolDemand.totalUnassigned > 0 ? `-${w.poolDemand.totalUnassigned} Uçak` : '0 (Tam Planlı)'}
+                                                </td>
+                                                <td className="py-3 px-3 text-gray-400 text-[11px]">
+                                                    🌉 {w.bridgeStandCount} Körük | 🚌 {w.remoteStandCount} Açık
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
                             </div>
                         </div>
                     )}
 
-                    {/* TAB 2: HOURLY PROFILE HEATMAP */}
+                    {/* TAB 2: CONCOURSE / APRON LEVEL DETAILED BREAKDOWN (Apron 100, 200, Concourse A..G) */}
+                    {activeTab === 'CONCOURSES' && (
+                        <div className="space-y-4">
+                            <div className="bg-gray-900/90 border border-gray-800 rounded-xl p-4">
+                                <h3 className="text-sm font-bold text-white mb-1 flex items-center justify-between">
+                                    <span>📍 Apron & Concourse Bazında Boşluk Dağılımı (T+4 Saat)</span>
+                                    <span className="text-xs text-gray-400 font-normal">
+                                        Toplam {w4.concourseBreakdown.length} bölgede fiziksel boşluk tespit edildi
+                                    </span>
+                                </h3>
+                                <p className="text-xs text-gray-400">
+                                    Hangi apronda kaç dar gövde, kaç geniş gövde ve kaç standalone pozisyon olduğunu anlık olarak görebilirsiniz.
+                                </p>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+                                {w4.concourseBreakdown.map(c => {
+                                    const isApronRemote = c.concourse.includes('APRON');
+                                    const isCargo = c.concourse.includes('CARGO');
+                                    const isDeicing = c.concourse.includes('DEICING');
+                                    const borderCol = isCargo ? 'border-amber-500/40' : isDeicing ? 'border-blue-500/40' : isApronRemote ? 'border-emerald-500/40' : 'border-cyan-500/40';
+
+                                    return (
+                                        <div key={c.concourse} className={`bg-gray-900/90 border ${borderCol} rounded-xl p-3.5 shadow-md flex flex-col justify-between`}>
+                                            <div>
+                                                <div className="flex items-center justify-between mb-2">
+                                                    <span className="font-black text-sm text-white">{c.label}</span>
+                                                    <span className="text-[10px] px-2 py-0.5 rounded bg-gray-800 font-semibold text-gray-300">
+                                                        Toplam {c.totalStands} Stand
+                                                    </span>
+                                                </div>
+
+                                                <div className="space-y-2 text-xs">
+                                                    <div className="flex justify-between items-baseline bg-gray-950/60 px-2.5 py-1.5 rounded border border-gray-800">
+                                                        <span className="text-cyan-300 font-bold">Dar Gövde (Cat C):</span>
+                                                        <span className="font-mono font-black text-sm text-white">
+                                                            {c.grossFreeCatC} <span className="text-[10px] text-gray-400 font-normal">stand</span>
+                                                        </span>
+                                                    </div>
+
+                                                    <div className="flex justify-between items-baseline bg-gray-950/60 px-2.5 py-1.5 rounded border border-gray-800">
+                                                        <span className="text-amber-400 font-bold">Geniş Gövde (Cat E):</span>
+                                                        <span className="font-mono font-black text-sm text-amber-300">
+                                                            {c.grossFreeCatE} <span className="text-[10px] text-gray-400 font-normal">stand</span>
+                                                        </span>
+                                                    </div>
+
+                                                    {c.grossFreeCatF > 0 && (
+                                                        <div className="flex justify-between items-baseline bg-gray-950/60 px-2.5 py-1 rounded border border-purple-800/40">
+                                                            <span className="text-purple-300 font-bold">Heavy (Cat F / A380):</span>
+                                                            <span className="font-mono font-black text-xs text-purple-200">{c.grossFreeCatF} stand</span>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            <div className="mt-3 pt-2 border-t border-gray-800 flex items-center justify-between text-[11px] text-gray-400">
+                                                <span>🛡️ Standalone: <strong className="text-white">{c.standaloneFreeCatE}</strong></span>
+                                                <span>⚖️ MARS: <strong className="text-amber-300">{c.marsFreeCatE}</strong></span>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* TAB 3: HOURLY PROFILE HEATMAP */}
                     {activeTab === 'HOURLY' && (
                         <div className="space-y-4">
                             <div className="bg-gray-900/80 border border-gray-800 rounded-xl p-4">
                                 <h3 className="text-xs font-bold text-cyan-300 uppercase tracking-wider mb-3">
-                                    🕒 12 Saatlik Dinamik Boş Stand Profili
+                                    🕒 12 Saatlik Dinamik Boş Stand Profili (Standalone ve MARS Ayrımıyla)
                                 </h3>
                                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2.5">
                                     {report.hourlyProfile.map(pt => {
@@ -391,6 +539,10 @@ export const DivertCapacityModal: React.FC<DivertCapacityModalProps> = ({
                                                     <span>E: {pt.freeCatE}</span>
                                                     <span>F: {pt.freeCatF}</span>
                                                 </div>
+                                                <div className="mt-1 pt-1 border-t border-gray-800/80 text-[9px] text-gray-400 flex justify-between">
+                                                    <span>🛡️ Standalone: {pt.standaloneFreeCatE}</span>
+                                                    <span>⚖️ MARS: {pt.marsFreeCatE}</span>
+                                                </div>
                                             </div>
                                         );
                                     })}
@@ -399,7 +551,7 @@ export const DivertCapacityModal: React.FC<DivertCapacityModalProps> = ({
                         </div>
                     )}
 
-                    {/* TAB 3: WHAT-IF SCENARIO SIMULATOR */}
+                    {/* TAB 4: WHAT-IF SCENARIO SIMULATOR */}
                     {activeTab === 'WHAT_IF' && (
                         <div className="space-y-4">
                             <div className="bg-gray-900/90 border border-gray-800 rounded-xl p-4">
@@ -407,7 +559,7 @@ export const DivertCapacityModal: React.FC<DivertCapacityModalProps> = ({
                                     🧪 Divert Senaryo Testi ("What-If" Analysis)
                                 </h3>
                                 <p className="text-xs text-gray-400 mb-4">
-                                    Havayolu veya kriz masasından gelen divert talebini girin; motor anlık olarak mevcut planı tarar ve tarifeyi bozmadan yer bulunup bulunamayacağını test eder.
+                                    Havayolu veya kriz masasından gelen divert talebini girin; motor anlık olarak mevcut planı tarar, standalone pozisyonları önceliklendirir ve tarifeli planı bozmadan yer bulunup bulunamayacağını test eder.
                                 </p>
 
                                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3 mb-4">
@@ -524,8 +676,11 @@ export const DivertCapacityModal: React.FC<DivertCapacityModalProps> = ({
                                                             <span>Stand: <strong className="text-white">{alloc.stand}</strong></span>
                                                             <span>{alloc.isBridge ? '🌉 Pier' : '🚌 Remote'}</span>
                                                         </div>
-                                                        <div className="text-[10px] text-gray-500 mt-0.5 truncate">
-                                                            {alloc.concourse}
+                                                        <div className="text-[10px] text-gray-400 mt-0.5 flex justify-between">
+                                                            <span className="truncate">{alloc.concourse}</span>
+                                                            {alloc.isStandalone && (
+                                                                <span className="text-emerald-400 font-bold">🛡️ Standalone</span>
+                                                            )}
                                                         </div>
                                                     </div>
                                                 ))}
@@ -548,7 +703,7 @@ export const DivertCapacityModal: React.FC<DivertCapacityModalProps> = ({
                         </div>
                     )}
 
-                    {/* TAB 4: AVAILABLE STAND DIRECTORY */}
+                    {/* TAB 5: AVAILABLE STAND DIRECTORY */}
                     {activeTab === 'STAND_LIST' && (
                         <div className="space-y-3">
                             {/* Filter Bar */}
@@ -629,7 +784,7 @@ export const DivertCapacityModal: React.FC<DivertCapacityModalProps> = ({
                     </div>
                     <button
                         onClick={onClose}
-                        className="px-4 py-1.5 bg-gray-800 hover:bg-gray-700 text-white font-bold rounded-lg transition"
+                        className="px-4 py-1.5 bg-gray-800 hover:bg-gray-750 text-white font-bold rounded-lg transition"
                     >
                         Kapat
                     </button>
