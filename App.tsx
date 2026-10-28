@@ -20,9 +20,11 @@ import ChangePasswordModal from './auth/ChangePasswordModal.tsx';
 import CustomDragLayer from './components/CustomDragLayer.tsx';
 import HeaderRevenueSummary from './components/HeaderRevenueSummary.tsx';
 import BottomRevenueSummaryBar from './components/BottomRevenueSummaryBar.tsx';
-import { runAiBridgeAllocation, calculateBridgeUtilization, hasMaintenanceConflict } from './services/ai-allocator.ts';
+import { runAiBridgeAllocation, calculateBridgeUtilization, hasMaintenanceConflict, AiAllocationOptions } from './services/ai-allocator.ts';
 import { getAircraftCategory, isContactStand } from './services/ams-rules.ts';
 import AiAllocationReportModal, { AiReportData } from './components/AiAllocationReportModal.tsx';
+import AiScorePlannerModal from './components/AiScorePlannerModal.tsx';
+import RadarTrackingModal from './components/RadarTrackingModal.tsx';
 import AiCopilotModal from './components/AiCopilotModal.tsx';
 import DivertCapacityModal from './components/DivertCapacityModal.tsx';
 import GeminiSettingsModal from './components/GeminiSettingsModal.tsx';
@@ -736,6 +738,8 @@ const App: React.FC<{ user: User }> = ({ user }) => {
     const [isSuperSetMode, setIsSuperSetMode] = useState(false);
     const [historyModalFlight, setHistoryModalFlight] = useState<Flight | null>(null);
     const [trackingFlight, setTrackingFlight] = useState<Flight | null>(null);
+    const [radarTrackingFlight, setRadarTrackingFlight] = useState<Flight | null>(null);
+    const [isAiScorePlannerModalOpen, setIsAiScorePlannerModalOpen] = useState(false);
     const [gateAssignmentFlight, setGateAssignmentFlight] = useState<Flight | null>(null);
 
 
@@ -992,18 +996,21 @@ const App: React.FC<{ user: User }> = ({ user }) => {
         setTimeout(() => setAllocationMessage(null), 5000);
     }, [flights, currentUser.username, maintenanceBlocks, gateList]);
 
-    const handleRunAiAllocation = useCallback(() => {
+    const handleRunAiAllocation = useCallback((options?: AiAllocationOptions) => {
         if (flights.length === 0) return;
         setIsAiAllocating(true);
 
         setTimeout(() => {
             try {
                 const initialStats = calculateBridgeUtilization(flights, startDate, endDate);
-                const { flights: newFlights, stats, swapDetails, totalSwapsPerformed, netFlightsGained, gapFillsPerformed, bufferSmoothedCount } = runAiBridgeAllocation(flights, startDate, endDate, maintenanceBlocks);
+                const { flights: newFlights, stats, swapDetails, totalSwapsPerformed, netFlightsGained, gapFillsPerformed, bufferSmoothedCount, fidsWarnings, fidsLockedCount, timeFilteredFlightCount } = runAiBridgeAllocation(flights, startDate, endDate, maintenanceBlocks, options);
+
+                const fidsMsg = (fidsLockedCount && fidsLockedCount > 0) ? `, 🛡️ ${fidsLockedCount} FIDS Kilitli` : '';
+                const timeMsg = (timeFilteredFlightCount && timeFilteredFlightCount > 0) ? `, ⏱️ ${timeFilteredFlightCount} Zaman Dışı Korundu` : '';
 
                 const newHistoryEntry: FlightHistoryEntry = {
                     user: currentUser.username,
-                    action: `AI Skor Planlama yapıldı (Köprü Oranı: %${stats.bridgeRate.toFixed(1)}, ${totalSwapsPerformed} akıllı takas, ${bufferSmoothedCount || 0} tampon düzeltme).`,
+                    action: `AI Skor Planlama yapıldı (Köprü Oranı: %${stats.bridgeRate.toFixed(1)}, ${totalSwapsPerformed} akıllı takas${fidsMsg}${timeMsg}).`,
                     timestamp: new Date()
                 };
 
@@ -1038,7 +1045,7 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                 }
 
                 const smoothMsg = (bufferSmoothedCount && bufferSmoothedCount > 0) ? `, 🛡️ ${bufferSmoothedCount} Tampon Dengelendi` : '';
-                setAllocationMessage(`⚡ AI Skor Planlama Tamamlandı: %${stats.bridgeRate.toFixed(1)} Köprü Oranı (${stats.bridgeAssignedCount} / ${stats.eligibleFlightsCount} Yolcu Körükte, ${totalSwapsPerformed} Akıllı Takas${smoothMsg})`);
+                setAllocationMessage(`⚡ AI Skor Planlama Tamamlandı: %${stats.bridgeRate.toFixed(1)} Köprü Oranı (${stats.bridgeAssignedCount} / ${stats.eligibleFlightsCount} Yolcu Körükte, ${totalSwapsPerformed} Akıllı Takas${smoothMsg}${fidsMsg})`);
                 setTimeout(() => setAllocationMessage(null), 8000);
 
                 // Open AI Report Card Modal
@@ -1048,7 +1055,10 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                     swapDetails,
                     totalSwapsPerformed,
                     netFlightsGained,
-                    gapFillsPerformed
+                    gapFillsPerformed,
+                    fidsWarnings,
+                    fidsLockedCount,
+                    timeFilteredFlightCount
                 });
                 setIsAiReportModalOpen(true);
             } catch (err) {
@@ -1942,7 +1952,7 @@ const App: React.FC<{ user: User }> = ({ user }) => {
 
                             {/* 🟣 AI PLANLA: SENARYO 1 (MAKSİMUM KÖPRÜ) */}
                             <button 
-                                onClick={handleRunAiAllocation}
+                                onClick={() => setIsAiScorePlannerModalOpen(true)}
                                 disabled={flights.length === 0 || isAiAllocating}
                                 className={`flex items-center gap-1.5 px-3 py-1.5 font-semibold rounded-lg text-white shadow-md transition duration-200 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer select-none border border-purple-400/40 ${
                                     isAiAllocating 
@@ -2346,7 +2356,36 @@ const App: React.FC<{ user: User }> = ({ user }) => {
             {currentUser.isAdmin && <AdminPanel isOpen={isAdminPanelOpen} onClose={() => setAdminPanelOpen(false)} />}
             <ChangePasswordModal isOpen={isChangePasswordModalOpen} onClose={() => setChangePasswordModalOpen(false)} />
 
-            <FlightContextMenu menu={contextMenu} onClose={() => setContextMenu(null)} onToggleOverride={toggleRuleOverride} onToggleSuperSet={handleToggleFlightSuperSet} ruleOverrides={ruleOverrides} onShowHistory={handleShowHistory} onShowMap={handleShowMap} onAssignGate={handleOpenGateAssignmentModal} />
+            <FlightContextMenu 
+                menu={contextMenu} 
+                onClose={() => setContextMenu(null)} 
+                onToggleOverride={toggleRuleOverride} 
+                onToggleSuperSet={handleToggleFlightSuperSet} 
+                ruleOverrides={ruleOverrides} 
+                onShowHistory={handleShowHistory} 
+                onShowMap={handleShowMap} 
+                onShowRadar={(flightId) => {
+                    const f = flights.find(fl => fl.id === flightId);
+                    if (f) setRadarTrackingFlight(f);
+                }}
+                onAssignGate={handleOpenGateAssignmentModal} 
+            />
+
+            {radarTrackingFlight && (
+                <RadarTrackingModal
+                    flight={radarTrackingFlight}
+                    onClose={() => setRadarTrackingFlight(null)}
+                />
+            )}
+
+            <AiScorePlannerModal
+                isOpen={isAiScorePlannerModalOpen}
+                onClose={() => setIsAiScorePlannerModalOpen(false)}
+                onRunPlanning={(options) => handleRunAiAllocation(options)}
+                flights={flights}
+                currentStartDate={startDate}
+                currentEndDate={endDate}
+            />
 
             {isMappingModalOpen && excelData.current && (
                 <ColumnMappingModal isOpen={isMappingModalOpen} onClose={() => setMappingModalOpen(false)} headers={excelData.current.headers} dataPreview={excelData.current.data.slice(0, 5)} onConfirm={handleConfirmMapping} />

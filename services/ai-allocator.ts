@@ -11,6 +11,29 @@ import {
     AMS_CAT_F_HEAVY_STANDS,
     CAT_F_HEAVY_STANDS 
 } from './ams-rules.ts';
+import { getFidsPublicationStatus, FidsPublicationStatus } from './fids-service.ts';
+
+export interface FidsAdvisoryWarning {
+    flightId: string;
+    flightNumber: string;
+    airline: string;
+    gate: string;
+    stand: string;
+    scheduledDeparture: Date;
+    destination: string;
+    fidsThresholdMinutes: number;
+    minutesUntilDeparture: number;
+    reason: string;
+    status: 'LOCKED_ON_STAND' | 'CONFLICT_DETECTED' | 'REMOTE_STAND_WARNING';
+}
+
+export interface AiAllocationOptions {
+    ignoreFidsParameters?: boolean; // if true, don't lock FIDS published flights
+    timeFilterEnabled?: boolean;
+    filterStart?: Date;
+    filterEnd?: Date;
+    referenceTime?: Date;
+}
 
 export interface BridgeUtilizationStats {
     totalFlights: number;
@@ -152,6 +175,60 @@ export function isOperationalLockedFlight(f: Flight): boolean {
         }
     }
     return false;
+}
+
+/**
+ * FIDS Gate Parametreleri ve Zaman Aralığı Filtresi Kontrolü
+ * 1. Eğer zaman filtresi aktifse, seçili geliş aralığı dışındaki uçuşlar kilitlenir.
+ * 2. Eğer gate parametreleri aktifse (ignoreFidsParameters !== true), kapısı FIDS ekranlarına
+ *    yansıma süresi geçmiş olan uçuşlar KİLİTLENİR (Hard Lock).
+ */
+export function isFlightLockedByFidsOrTime(
+    f: Flight, 
+    options?: AiAllocationOptions, 
+    referenceTime?: Date
+): { isLocked: boolean; reason?: string; fidsWarning?: FidsAdvisoryWarning } {
+    // 1. Time Window Filter Check (Sadece belirli geliş aralığındaki uçakları planla)
+    if (options?.timeFilterEnabled && options.filterStart && options.filterEnd) {
+        const arrTime = f.scheduledArrival;
+        if (arrTime < options.filterStart || arrTime > options.filterEnd) {
+            return {
+                isLocked: true,
+                reason: 'Seçili geliş zaman aralığı dışında kaldığı için mevcut pozisyonu korundu'
+            };
+        }
+    }
+
+    // 2. FIDS Gate Parameters Check
+    if (!options?.ignoreFidsParameters) {
+        const refTime = options?.referenceTime || referenceTime || new Date();
+        const fids = getFidsPublicationStatus(f, refTime);
+        const raw = f.raw_data || {};
+        const currentGate = f.gate || raw.Gate || raw.DepGate || '';
+        if (fids.isPublished && currentGate) {
+            const hasBridge = f.parkingPosition && isContactStand(f.parkingPosition);
+            const warning: FidsAdvisoryWarning = {
+                flightId: f.id,
+                flightNumber: f.departureFlightNumber || f.arrivalFlightNumber || 'N/A',
+                airline: f.airline || '',
+                gate: currentGate,
+                stand: f.parkingPosition || 'Atanmadı',
+                scheduledDeparture: f.scheduledDeparture,
+                destination: f.destination || '',
+                fidsThresholdMinutes: fids.thresholdMinutes,
+                minutesUntilDeparture: fids.minutesUntilDeparture,
+                reason: fids.reason,
+                status: hasBridge ? 'LOCKED_ON_STAND' : 'REMOTE_STAND_WARNING'
+            };
+            return {
+                isLocked: true,
+                reason: `Kapı FIDS ekranlarına basıldı (${fids.reason})`,
+                fidsWarning: warning
+            };
+        }
+    }
+
+    return { isLocked: false };
 }
 
 /**
@@ -539,6 +616,9 @@ export interface AiAllocationResult {
     netFlightsGained: number;
     gapFillsPerformed: number;
     bufferSmoothedCount: number;
+    fidsWarnings?: FidsAdvisoryWarning[];
+    fidsLockedCount?: number;
+    timeFilteredFlightCount?: number;
 }
 
 /**
@@ -693,16 +773,31 @@ export function runFromScratchAllocation(
     allFlights: Flight[],
     startDate?: Date,
     endDate?: Date,
-    maintenanceBlocks?: MaintenanceBlock[]
+    maintenanceBlocks?: MaintenanceBlock[],
+    options?: AiAllocationOptions
 ): AiAllocationResult {
     const topology = buildStandTopology(maintenanceBlocks);
     const flightUpdates = new Map<string, string | null>();
 
-    // 0. Operasyonel Sabit Uçuşları Önceden Kilitle (AOG / Towing / Split Legs)
+    const fidsWarnings: FidsAdvisoryWarning[] = [];
+    let fidsLockedCount = 0;
+    let timeFilteredFlightCount = 0;
+
+    // 0. Operasyonel Sabit Uçuşları ve FIDS / Zaman Kilitlerini Önceden Kilitle
     // Bu uçuşlar gerçek hayattaki pozisyonlarını korur; AI asla yerlerini değiştirmez.
     allFlights.forEach(f => {
-        if (isOperationalLockedFlight(f)) {
+        const isOpLocked = isOperationalLockedFlight(f);
+        const lockStatus = isFlightLockedByFidsOrTime(f, options, startDate);
+
+        if (isOpLocked || lockStatus.isLocked) {
             flightUpdates.set(f.id, f.parkingPosition || null);
+            if (lockStatus.fidsWarning) {
+                fidsWarnings.push(lockStatus.fidsWarning);
+                fidsLockedCount++;
+            }
+            if (options?.timeFilterEnabled && lockStatus.reason?.includes('zaman aralığı')) {
+                timeFilteredFlightCount++;
+            }
             if (f.parkingPosition && topology.has(f.parkingPosition)) {
                 const sched = topology.get(f.parkingPosition)!;
                 const arrMs = f.scheduledArrival.getTime();
@@ -720,7 +815,9 @@ export function runFromScratchAllocation(
     const noAcFlights: Flight[] = [];
 
     allFlights.forEach(f => {
-        if (isOperationalLockedFlight(f)) {
+        const isOpLocked = isOperationalLockedFlight(f);
+        const lockStatus = isFlightLockedByFidsOrTime(f, options, startDate);
+        if (isOpLocked || lockStatus.isLocked) {
             return; // Önceden kilitlendi, planlamadan muaf
         }
         if (isNoAcFlight(f)) {
@@ -1738,7 +1835,10 @@ export function runFromScratchAllocation(
         totalSwapsPerformed,
         netFlightsGained,
         gapFillsPerformed,
-        bufferSmoothedCount
+        bufferSmoothedCount,
+        fidsWarnings,
+        fidsLockedCount,
+        timeFilteredFlightCount
     };
 }
 
@@ -1749,7 +1849,8 @@ export function runPreserveAndElevateAllocation(
     allFlights: Flight[],
     startDate?: Date,
     endDate?: Date,
-    maintenanceBlocks?: MaintenanceBlock[]
+    maintenanceBlocks?: MaintenanceBlock[],
+    options?: AiAllocationOptions
 ): AiAllocationResult | null {
     const existingContactCount = allFlights.filter(f => f.parkingPosition && isContactStand(f.parkingPosition)).length;
     if (existingContactCount === 0) return null;
@@ -1757,10 +1858,24 @@ export function runPreserveAndElevateAllocation(
     const topology = buildStandTopology(maintenanceBlocks);
     const flightUpdates = new Map<string, string | null>();
 
-    // 0. Operasyonel Sabit Uçuşları Önceden Kilitle (AOG / Towing / Split Legs)
+    const fidsWarnings: FidsAdvisoryWarning[] = [];
+    let fidsLockedCount = 0;
+    let timeFilteredFlightCount = 0;
+
+    // 0. Operasyonel Sabit Uçuşları ve FIDS / Zaman Kilitlerini Önceden Kilitle
     allFlights.forEach(f => {
-        if (isOperationalLockedFlight(f)) {
+        const isOpLocked = isOperationalLockedFlight(f);
+        const lockStatus = isFlightLockedByFidsOrTime(f, options, startDate);
+
+        if (isOpLocked || lockStatus.isLocked) {
             flightUpdates.set(f.id, f.parkingPosition || null);
+            if (lockStatus.fidsWarning) {
+                fidsWarnings.push(lockStatus.fidsWarning);
+                fidsLockedCount++;
+            }
+            if (options?.timeFilterEnabled && lockStatus.reason?.includes('zaman aralığı')) {
+                timeFilteredFlightCount++;
+            }
             if (f.parkingPosition && topology.has(f.parkingPosition)) {
                 const sched = topology.get(f.parkingPosition)!;
                 const arrMs = f.scheduledArrival.getTime();
@@ -1777,7 +1892,9 @@ export function runPreserveAndElevateAllocation(
     const noAcFlights: Flight[] = [];
 
     allFlights.forEach(f => {
-        if (isOperationalLockedFlight(f)) {
+        const isOpLocked = isOperationalLockedFlight(f);
+        const lockStatus = isFlightLockedByFidsOrTime(f, options, startDate);
+        if (isOpLocked || lockStatus.isLocked) {
             return; // Önceden kilitlendi
         }
         if (isNoAcFlight(f)) {
@@ -2215,7 +2332,10 @@ export function runPreserveAndElevateAllocation(
         totalSwapsPerformed,
         netFlightsGained,
         gapFillsPerformed,
-        bufferSmoothedCount
+        bufferSmoothedCount,
+        fidsWarnings,
+        fidsLockedCount,
+        timeFilteredFlightCount
     };
 }
 
@@ -2226,17 +2346,18 @@ export function runAiBridgeAllocation(
     allFlights: Flight[],
     startDate?: Date,
     endDate?: Date,
-    maintenanceBlocks?: MaintenanceBlock[]
+    maintenanceBlocks?: MaintenanceBlock[],
+    options?: AiAllocationOptions
 ): AiAllocationResult {
     const existingContactCount = allFlights.filter(f => f.parkingPosition && isContactStand(f.parkingPosition)).length;
 
     // If flights already have contact stand assignments from human dispatcher, run Warm-Start Optimization
     let elevateResult: AiAllocationResult | null = null;
     if (existingContactCount > 0) {
-        elevateResult = runPreserveAndElevateAllocation(allFlights, startDate, endDate, maintenanceBlocks);
+        elevateResult = runPreserveAndElevateAllocation(allFlights, startDate, endDate, maintenanceBlocks, options);
     }
 
-    const scratchResult = runFromScratchAllocation(allFlights, startDate, endDate, maintenanceBlocks);
+    const scratchResult = runFromScratchAllocation(allFlights, startDate, endDate, maintenanceBlocks, options);
 
     // If elevateResult exists and achieved >= bridge assigned count, prefer it!
     if (elevateResult && elevateResult.stats.bridgeAssignedCount >= scratchResult.stats.bridgeAssignedCount) {

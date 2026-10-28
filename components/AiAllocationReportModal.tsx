@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { BridgeUtilizationStats, SwapDetail } from '../services/ai-allocator.ts';
+import { BridgeUtilizationStats, SwapDetail, FidsAdvisoryWarning } from '../services/ai-allocator.ts';
 
 export interface AiReportData {
     stats: BridgeUtilizationStats;
@@ -8,6 +8,9 @@ export interface AiReportData {
     totalSwapsPerformed: number;
     netFlightsGained: number;
     gapFillsPerformed: number;
+    fidsWarnings?: FidsAdvisoryWarning[];
+    fidsLockedCount?: number;
+    timeFilteredFlightCount?: number;
 }
 
 interface AiAllocationReportModalProps {
@@ -17,11 +20,11 @@ interface AiAllocationReportModalProps {
 }
 
 const AiAllocationReportModal: React.FC<AiAllocationReportModalProps> = ({ isOpen, onClose, report }) => {
-    const [activeTab, setActiveTab] = useState<'kpi' | 'swaps' | 'rules'>('kpi');
+    const [activeTab, setActiveTab] = useState<'kpi' | 'swaps' | 'rules' | 'fids'>('kpi');
 
     if (!isOpen || !report) return null;
 
-    const { stats, initialStats, swapDetails, totalSwapsPerformed, netFlightsGained, gapFillsPerformed } = report;
+    const { stats, initialStats, swapDetails, totalSwapsPerformed, netFlightsGained, gapFillsPerformed, fidsWarnings = [], fidsLockedCount = 0, timeFilteredFlightCount = 0 } = report;
     const aiBridgeCount = stats.bridgeAssignedCount;
     
     // Read the actual human baseline from initialStats (before AI ran)
@@ -86,6 +89,16 @@ const AiAllocationReportModal: React.FC<AiAllocationReportModalProps> = ({ isOpe
                     >
                         <span>📋</span> Uygulanan Operasyonel Kriterler
                     </button>
+                    {fidsWarnings.length > 0 && (
+                        <button
+                            onClick={() => setActiveTab('fids')}
+                            className={`px-3 py-1.5 font-bold rounded-lg transition-colors flex items-center gap-1.5 ${
+                                activeTab === 'fids' ? 'bg-indigo-600 text-white shadow' : 'text-indigo-300 hover:text-white hover:bg-indigo-950/40 border border-indigo-500/30'
+                            }`}
+                        >
+                            <span>🛡️</span> FIDS Korumalı Uçuşlar ({fidsWarnings.length})
+                        </button>
+                    )}
                 </div>
 
                 {/* Main Content */}
@@ -316,6 +329,61 @@ const AiAllocationReportModal: React.FC<AiAllocationReportModalProps> = ({ isOpe
                                         Körük kullanım oranını yapay olarak şişirmek için uçakları körükten açığa çeken hayali towing hareketleri üretilmez; gerçekleşen bacaklar korunur. Buffer time 0 dakika uygulanır.
                                     </p>
                                 </div>
+                            </div>
+                        </div>
+                    )}
+                    {activeTab === 'fids' && (
+                        <div className="space-y-4">
+                            <div className="p-4 rounded-xl bg-indigo-950/40 border border-indigo-700/50 flex items-start gap-3">
+                                <span className="text-2xl mt-0.5">🛡️</span>
+                                <div>
+                                    <h3 className="font-bold text-indigo-200 text-sm">
+                                        FIDS Ekran Kilidi Aktif: {fidsWarnings.length} Uçuş Değiştirilmedi (Hard Lock)
+                                    </h3>
+                                    <p className="text-xs text-gray-300 mt-1 leading-relaxed">
+                                        GATE__PARAMETRELER kurallarına göre kalkış kapısı yolcu ekranlarına yansımış uçuşların kapısı 
+                                        yolcu güvenliği ve terminal düzeni için otomatik olarak değiştirilmemiştir.
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div className="border border-gray-750 rounded-xl overflow-hidden bg-gray-900/60">
+                                <table className="w-full text-left text-xs">
+                                    <thead className="bg-gray-800/90 text-gray-400 font-bold uppercase text-[10px] tracking-wider border-b border-gray-700">
+                                        <tr>
+                                            <th className="p-3">Uçuş No</th>
+                                            <th className="p-3">Kalkış Kapısı</th>
+                                            <th className="p-3">Mevcut Stant</th>
+                                            <th className="p-3">Destinasyon</th>
+                                            <th className="p-3">FIDS Eşiği</th>
+                                            <th className="p-3">Kalkışa Kalan</th>
+                                            <th className="p-3">Durum</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-800 font-mono text-[11px]">
+                                        {fidsWarnings.map((w, idx) => (
+                                            <tr key={idx} className="hover:bg-gray-800/40 transition">
+                                                <td className="p-3 font-bold text-white">{w.flightNumber}</td>
+                                                <td className="p-3 text-purple-300 font-bold">{w.gate}</td>
+                                                <td className="p-3 text-amber-300">{w.stand}</td>
+                                                <td className="p-3 text-gray-300">{w.destination}</td>
+                                                <td className="p-3 text-indigo-300 font-sans">{w.fidsThresholdMinutes} dk ({w.reason.split('(')[0]})</td>
+                                                <td className="p-3 text-gray-400 font-sans">{w.minutesUntilDeparture} dk</td>
+                                                <td className="p-3">
+                                                    {w.status === 'LOCKED_ON_STAND' ? (
+                                                        <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 text-[10px] font-sans font-bold">
+                                                            ✓ Köprüde Sabitlendi
+                                                        </span>
+                                                    ) : (
+                                                        <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-400/30 text-[10px] font-sans font-bold">
+                                                            ⚠️ Açık Parkta (Manuel Onay)
+                                                        </span>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
                             </div>
                         </div>
                     )}
