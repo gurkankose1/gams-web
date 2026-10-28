@@ -46,6 +46,16 @@ export interface FlightState {
   velocity: number | null; // m/s
   true_track: number | null; // degrees
   vertical_rate: number | null; // m/s
+  altitude_ft?: number;
+  speed_kmh?: number;
+  speed_kts?: number;
+  aircraft_type?: string;
+  registration?: string;
+  origin?: string;
+  destination?: string;
+  flight_number?: string;
+  source?: string;
+  is_at_stand?: boolean;
 }
 
 export interface MaintenanceBlock {

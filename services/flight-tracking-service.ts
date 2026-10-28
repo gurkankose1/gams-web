@@ -1,68 +1,100 @@
 import { FlightState } from '../types.ts';
 
-const CORS_PROXY_URL = 'https://corsproxy.io/?';
-const OPENSKY_URL = `${CORS_PROXY_URL}https://opensky-network.org/api/states/all`;
+export interface FlightTrackingQuery {
+  callsign?: string;
+  regNo?: string;
+  flightNumber?: string;
+}
 
-// State vector indices from OpenSky Network API documentation
-const StateVector = {
-  ICAO24: 0,
-  CALLSIGN: 1,
-  ORIGIN_COUNTRY: 2,
-  TIME_POSITION: 3,
-  LAST_CONTACT: 4,
-  LONGITUDE: 5,
-  LATITUDE: 6,
-  BARO_ALTITUDE: 7,
-  ON_GROUND: 8,
-  VELOCITY: 9,
-  TRUE_TRACK: 10,
-  VERTICAL_RATE: 11,
-  SENSORS: 12,
-  GEO_ALTITUDE: 13,
-  SQUAWK: 14,
-  SPI: 15,
-  POSITION_SOURCE: 16,
-};
+export const findFlightState = async (
+  queryOrFlightNumber: string | FlightTrackingQuery
+): Promise<FlightState | null> => {
+  let callsign = '';
+  let regNo = '';
+  let flightNumber = '';
 
-// This function needs to return an object matching the FlightState interface
-const parseStateVector = (state: any[]): FlightState => ({
-  icao24: state[StateVector.ICAO24],
-  callsign: state[StateVector.CALLSIGN]?.trim() ?? 'N/A',
-  origin_country: state[StateVector.ORIGIN_COUNTRY],
-  longitude: state[StateVector.LONGITUDE],
-  latitude: state[StateVector.LATITUDE],
-  baro_altitude: state[StateVector.BARO_ALTITUDE],
-  on_ground: state[StateVector.ON_GROUND],
-  velocity: state[StateVector.VELOCITY],
-  true_track: state[StateVector.TRUE_TRACK],
-  vertical_rate: state[StateVector.VERTICAL_RATE],
-});
-
-export const findFlightState = async (flightNumber: string): Promise<FlightState | null> => {
-  try {
-    const response = await fetch(OPENSKY_URL);
-    if (!response.ok) {
-        console.error('Failed to fetch from OpenSky Network via proxy:', response.status, response.statusText);
-        return null;
-    }
-    const data = await response.json();
-
-    if (!data || !Array.isArray(data.states)) {
-      console.error('Invalid data structure from OpenSky API');
-      return null;
-    }
-
-    const flightStateVector = data.states.find(
-      (state: any[]) => state[StateVector.CALLSIGN]?.trim() === flightNumber
-    );
-
-    if (flightStateVector) {
-      return parseStateVector(flightStateVector);
-    }
-
-    return null; // Flight not found
-  } catch (error) {
-    console.error('Error fetching or parsing flight state:', error);
-    return null;
+  if (typeof queryOrFlightNumber === 'string') {
+    callsign = queryOrFlightNumber;
+    flightNumber = queryOrFlightNumber;
+  } else if (queryOrFlightNumber) {
+    callsign = queryOrFlightNumber.callsign || '';
+    regNo = queryOrFlightNumber.regNo || '';
+    flightNumber = queryOrFlightNumber.flightNumber || '';
   }
+
+  // 1. Primary Source: Vercel Serverless FR24 ADS-B API
+  try {
+    const params = new URLSearchParams();
+    if (callsign) params.append('callsign', callsign);
+    if (regNo) params.append('reg', regNo);
+    if (flightNumber) params.append('flight', flightNumber);
+
+    const res = await fetch(`/api/radar?${params.toString()}`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.found && data.latitude && data.longitude) {
+        return {
+          icao24: data.hex || 'N/A',
+          callsign: data.callsign || callsign || 'N/A',
+          origin_country: data.origin || 'N/A',
+          longitude: data.longitude,
+          latitude: data.latitude,
+          baro_altitude: data.baro_altitude,
+          altitude_ft: data.altitude_ft,
+          on_ground: !!data.on_ground,
+          velocity: data.velocity,
+          speed_kmh: data.speed_kmh,
+          speed_kts: data.speed_kts,
+          true_track: data.true_track,
+          vertical_rate: null,
+          aircraft_type: data.aircraft_type,
+          registration: data.registration || regNo,
+          origin: data.origin,
+          destination: data.destination,
+          flight_number: data.flight_number || flightNumber,
+          source: 'FLIGHTRADAR24'
+        };
+      }
+    }
+  } catch (err) {
+    console.warn('API radar fetch failed, trying fallbacks:', err);
+  }
+
+  // 2. Secondary Fallback: OpenSky Network
+  try {
+    const searchTarget = (callsign || flightNumber).replace(/\s+/g, '').toUpperCase();
+    if (searchTarget) {
+      const res = await fetch(`https://opensky-network.org/api/states/all`);
+      if (res.ok) {
+        const osData = await res.json();
+        if (osData && Array.isArray(osData.states)) {
+          const match = osData.states.find(
+            (s: any[]) => s[1]?.trim().toUpperCase() === searchTarget
+          );
+          if (match && match[6] && match[5]) {
+            return {
+              icao24: match[0],
+              callsign: match[1]?.trim() || searchTarget,
+              origin_country: match[2],
+              longitude: match[5],
+              latitude: match[6],
+              baro_altitude: match[7],
+              altitude_ft: match[7] ? Math.round(match[7] * 3.28084) : 0,
+              on_ground: !!match[8],
+              velocity: match[9],
+              speed_kmh: match[9] ? Math.round(match[9] * 3.6) : 0,
+              speed_kts: match[9] ? Math.round(match[9] * 1.94384) : 0,
+              true_track: match[10],
+              vertical_rate: match[11],
+              source: 'OPENSKY'
+            };
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('OpenSky fallback failed:', err);
+  }
+
+  return null;
 };
