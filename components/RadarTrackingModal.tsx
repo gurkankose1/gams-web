@@ -105,10 +105,13 @@ export const RadarTrackingModal: React.FC<RadarTrackingModalProps> = ({ flight, 
             attributionControl: false
         }).setView(IST_COORDS, 7);
 
-        // Dark Matter tiles for authentic ATC radar look
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-            subdomains: 'abcd',
-            maxZoom: 19
+        // Esri World Dark Gray Canvas (No API Key required, clean dark ATC radar map)
+        L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
+            maxZoom: 16
+        }).addTo(map);
+
+        L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}', {
+            maxZoom: 16
         }).addTo(map);
 
         // Add Istanbul Airport Base Marker
