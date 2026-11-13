@@ -1746,7 +1746,7 @@ export function runFromScratchAllocation(
 
         const isWide = isFlightWide(f);
         const isHeavy = isFlightHeavy(f);
-        const concourse = Object.keys(CONCOURSE_LAYOUT).find(c => CONCOURSE_LAYOUT[c].includes(pos)) || '';
+        const concourse = (pos && Object.keys(CONCOURSE_LAYOUT).find(c => CONCOURSE_LAYOUT[c]?.includes(pos))) || '';
 
         let needsDemotion = false;
 
@@ -2270,7 +2270,7 @@ export function runPreserveAndElevateAllocation(
         const pos = f.parkingPosition;
         const isWide = isFlightWide(f);
         const isHeavy = isFlightHeavy(f);
-        const concourse = Object.keys(CONCOURSE_LAYOUT).find(c => CONCOURSE_LAYOUT[c].includes(pos)) || '';
+        const concourse = (pos && Object.keys(CONCOURSE_LAYOUT).find(c => CONCOURSE_LAYOUT[c]?.includes(pos))) || '';
 
         let needsDemotion = false;
 

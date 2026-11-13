@@ -36,7 +36,8 @@ const getRelatedMarsPositions = (pos: string): string[] => {
 };
 
 const getParkingPositionType = (pos: string): 'domestic' | 'international' | 'mixed' => {
-    const concourse = Object.keys(CONCOURSE_LAYOUT).find(c => CONCOURSE_LAYOUT[c].includes(pos));
+    if (!pos) return 'mixed';
+    const concourse = Object.keys(CONCOURSE_LAYOUT).find(c => CONCOURSE_LAYOUT[c]?.includes(pos));
     if (concourse) {
         if (DOMESTIC_CONCOURSES.has(concourse)) return 'domestic';
         if (INTERNATIONAL_CONCOURSES.has(concourse)) return 'international';

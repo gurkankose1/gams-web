@@ -1027,7 +1027,7 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                 flightsWithHistory.forEach(f => {
                     if (f.parkingPosition) {
                         Object.entries(CONCOURSE_LAYOUT).forEach(([name, posList]) => {
-                            if (posList.includes(f.parkingPosition!)) {
+                            if (Array.isArray(posList) && posList.includes(f.parkingPosition!)) {
                                 concoursesToExpand.add(name);
                             }
                         });
@@ -1096,7 +1096,7 @@ const App: React.FC<{ user: User }> = ({ user }) => {
         const foundFlight = flights.find(f =>
             f.arrivalFlightNumber?.toLowerCase().includes(lowerCaseQuery) ||
             f.departureFlightNumber?.toLowerCase().includes(lowerCaseQuery) ||
-            f.aircraftType.toLowerCase().includes(lowerCaseQuery) ||
+            f.aircraftType?.toLowerCase().includes(lowerCaseQuery) ||
             f.origin?.toLowerCase().includes(lowerCaseQuery) ||
             f.destination?.toLowerCase().includes(lowerCaseQuery) ||
             f.gate?.toLowerCase().includes(lowerCaseQuery) ||
@@ -1107,7 +1107,7 @@ const App: React.FC<{ user: User }> = ({ user }) => {
             setHighlightedFlightId(foundFlight.id);
             if (foundFlight.parkingPosition && currentView === 'parking') {
                 const concourseEntry = Object.entries(CONCOURSE_LAYOUT).find(([_, positions]) =>
-                    positions.includes(foundFlight.parkingPosition!)
+                    Array.isArray(positions) && positions.includes(foundFlight.parkingPosition!)
                 );
                 if (concourseEntry) {
                     const [concourseName] = concourseEntry;
@@ -1553,7 +1553,7 @@ const App: React.FC<{ user: User }> = ({ user }) => {
             flightsWithHistory.forEach(f => {
                 if (f.parkingPosition) {
                     Object.entries(CONCOURSE_LAYOUT).forEach(([name, posList]) => {
-                        if (posList.includes(f.parkingPosition!)) {
+                        if (Array.isArray(posList) && posList.includes(f.parkingPosition!)) {
                             concoursesToExpand.add(name);
                         }
                     });
@@ -1579,7 +1579,7 @@ const App: React.FC<{ user: User }> = ({ user }) => {
             assignedFlights.forEach(f => {
                 if (f.parkingPosition) {
                     Object.entries(CONCOURSE_LAYOUT).forEach(([cName, pList]) => {
-                        if (pList.includes(f.parkingPosition!)) {
+                        if (Array.isArray(pList) && pList.includes(f.parkingPosition!)) {
                             concourseCounts[cName] = (concourseCounts[cName] || 0) + 1;
                         }
                     });

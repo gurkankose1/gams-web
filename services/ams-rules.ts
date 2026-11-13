@@ -142,18 +142,21 @@ export function getMarsRelatedPositions(pos: string): { center: string; subStand
 // ----------------------------------------------------------------------
 
 export function isContactStand(pos: string): boolean {
-    const concourse = Object.keys(CONCOURSE_LAYOUT).find(c => CONCOURSE_LAYOUT[c].includes(pos));
+    if (!pos) return false;
+    const concourse = Object.keys(CONCOURSE_LAYOUT).find(c => CONCOURSE_LAYOUT[c]?.includes(pos));
     if (!concourse) return false;
     return ['Concourse A', 'Concourse B', 'Concourse C', 'Concourse D', 'Concourse E', 'Concourse F', 'Concourse G'].includes(concourse);
 }
 
 export function isDomesticConcourse(pos: string): boolean {
-    const concourse = Object.keys(CONCOURSE_LAYOUT).find(c => CONCOURSE_LAYOUT[c].includes(pos));
+    if (!pos) return false;
+    const concourse = Object.keys(CONCOURSE_LAYOUT).find(c => CONCOURSE_LAYOUT[c]?.includes(pos));
     return concourse === 'Concourse G';
 }
 
 export function isInternationalConcourse(pos: string): boolean {
-    const concourse = Object.keys(CONCOURSE_LAYOUT).find(c => CONCOURSE_LAYOUT[c].includes(pos));
+    if (!pos) return false;
+    const concourse = Object.keys(CONCOURSE_LAYOUT).find(c => CONCOURSE_LAYOUT[c]?.includes(pos));
     if (!concourse) return false;
     return ['Concourse A', 'Concourse B', 'Concourse C', 'Concourse D', 'Concourse E', 'Concourse F'].includes(concourse);
 }
@@ -345,7 +348,7 @@ export function validateFlightPlacement(
 
         // --- RULE G: Cargo Flight Apron Restrictions (PDF 2) ---
         if (isCargo) {
-            const concourse = Object.keys(CONCOURSE_LAYOUT).find(c => CONCOURSE_LAYOUT[c].includes(targetPosition)) || '';
+            const concourse = (targetPosition && Object.keys(CONCOURSE_LAYOUT).find(c => CONCOURSE_LAYOUT[c]?.includes(targetPosition))) || '';
             if (isContactStand(targetPosition) && !concourse.includes('CARGO')) {
                 reasons.push(`Kargo uçuşu yolcu körüğüne (${targetPosition}) park edemez. Kargo Apronu kullanmalı.`);
             }

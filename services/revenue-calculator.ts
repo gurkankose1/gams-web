@@ -88,7 +88,7 @@ export const isBridgePosition = (position: string | null): boolean => {
   if (!position) return false;
   const cleanPos = position.trim().toUpperCase();
 
-  const concourse = Object.keys(CONCOURSE_LAYOUT).find(c => CONCOURSE_LAYOUT[c].includes(cleanPos));
+  const concourse = Object.keys(CONCOURSE_LAYOUT).find(c => CONCOURSE_LAYOUT[c]?.includes(cleanPos));
   if (concourse) {
     const cUpper = concourse.toUpperCase();
     if (['PIER A', 'PIER B', 'PIER C', 'PIER D', 'PIER E', 'PIER F', 'PIER G'].some(p => cUpper.includes(p))) {

@@ -23,10 +23,12 @@ const ExcelImportReportModal: React.FC<ExcelImportReportModalProps> = ({ isOpen,
 
     if (!isOpen || !report) return null;
 
-    const dxCancelledCount = report.errors.filter(e => 
-        e.reason.includes('DX') || e.reason.includes('İptal') || e.reason.includes('IPTAL') || e.reason.includes('CANCEL')
+    const dxCancelledCount = (report.errors || []).filter(e => 
+        Boolean(e?.reason && (
+            e.reason.includes('DX') || e.reason.includes('İptal') || e.reason.includes('IPTAL') || e.reason.includes('CANCEL')
+        ))
     ).length;
-    const syntaxErrorCount = report.errors.length - dxCancelledCount;
+    const syntaxErrorCount = Math.max(0, (report.errors?.length || 0) - dxCancelledCount);
 
     const timeOptions: Intl.DateTimeFormatOptions = {
         day: '2-digit',
