@@ -1443,13 +1443,20 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                         const sheet = workbook.Sheets[sheetName];
                         const jsonData = XLSX.utils.sheet_to_json(sheet);
                         const headerRows = XLSX.utils.sheet_to_json(sheet, { header: 1, range: 0 }) as any[][];
-                        const rawHeaders = Array.isArray(headerRows?.[0]) ? headerRows[0].map(h => String(h ?? '')) : [];
+                        const firstRow = Array.isArray(headerRows?.[0]) ? headerRows[0] : [];
+                        const rawHeaders: string[] = [];
+                        for (let i = 0; i < firstRow.length; i++) {
+                            const val = firstRow[i];
+                            const str = (val !== undefined && val !== null) ? String(val).trim() : '';
+                            rawHeaders.push(str || `Sütun_${i + 1}`);
+                        }
                         
                         const headerCounts = new Map<string, number>();
-                        const uniqueHeaders = rawHeaders.map(h => {
-                            const count = headerCounts.get(h) || 0;
-                            headerCounts.set(h, count + 1);
-                            return count > 0 ? `${h}_${count}` : h;
+                        const uniqueHeaders = rawHeaders.map((h, i) => {
+                            const baseName = h || `Sütun_${i + 1}`;
+                            const count = headerCounts.get(baseName) || 0;
+                            headerCounts.set(baseName, count + 1);
+                            return count > 0 ? `${baseName}_${count}` : baseName;
                         });
                         
                         excelData.current = { data: jsonData, headers: uniqueHeaders };

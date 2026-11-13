@@ -83,22 +83,27 @@ const ColumnMappingModal: React.FC<ColumnMappingModalProps> = ({ isOpen, onClose
   const currentFields = useMemo(() => importMode === 'turnaround' ? TURNAROUND_FIELDS : LEG_FIELDS, [importMode]);
 
   useEffect(() => {
-    if (isOpen && headers.length > 0) {
+    if (isOpen && headers && headers.length > 0) {
       const initialMapping: Mapping = {};
-      const lowerCaseHeaders = headers.map(h => String(h).toLowerCase().trim().replace(/[^a-z0-9/_]/gi, ''));
+      const cleanHeaders = headers.map(h => (h !== undefined && h !== null ? String(h).trim() : ''));
+      const lowerCaseHeaders = cleanHeaders.map(h => h.toLowerCase().replace(/[^a-z0-9/_]/gi, ''));
 
       currentFields.forEach(field => {
         initialMapping[field.id] = null;
         for (const guess of field.guesses) {
           const cleanGuess = guess.toLowerCase().trim().replace(/[^a-z0-9/_]/gi, '');
+          if (!cleanGuess) continue;
+
           // Priority 1: Exact string match
           let matchedHeader = headers.find((_header, index) => {
-            return lowerCaseHeaders[index] === cleanGuess;
+            const lch = lowerCaseHeaders[index];
+            return Boolean(lch && lch === cleanGuess);
           });
           // Priority 2: Partial substring match
           if (!matchedHeader) {
             matchedHeader = headers.find((_header, index) => {
-              return lowerCaseHeaders[index].includes(cleanGuess);
+              const lch = lowerCaseHeaders[index];
+              return Boolean(lch && lch.includes(cleanGuess));
             });
           }
           if (matchedHeader) {
