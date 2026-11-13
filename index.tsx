@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App.tsx';
+import ErrorBoundary from './components/ErrorBoundary.tsx';
 import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
 import { auth } from './firebase.ts';
@@ -89,9 +90,11 @@ const root = ReactDOM.createRoot(rootElement);
     await setupAndLoginAdmin();
     root.render(
       <React.StrictMode>
-        <DndProvider backend={HTML5Backend}>
-          <AuthController />
-        </DndProvider>
+        <ErrorBoundary fallbackTitle="GAMS Arayüz Hatası">
+          <DndProvider backend={HTML5Backend}>
+            <AuthController />
+          </DndProvider>
+        </ErrorBoundary>
       </React.StrictMode>
     );
 })();

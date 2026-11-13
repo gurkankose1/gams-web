@@ -336,14 +336,14 @@ const TimelineLaneComponent: React.FC<TimelineLaneProps> = ({
 export const TimelineLane = React.memo(TimelineLaneComponent);
 
 const TimelineHeaderComponent: React.FC<{startDate: Date, totalDurationMs: number}> = ({ startDate, totalDurationMs }) => {
-    if (totalDurationMs <= 0) return null;
-    const totalHours = totalDurationMs / (1000 * 60 * 60);
+    if (!totalDurationMs || isNaN(totalDurationMs) || totalDurationMs <= 0 || isNaN(startDate.getTime())) return null;
+    const totalHours = Math.min(720, Math.floor(totalDurationMs / (1000 * 60 * 60)));
 
     const timeOptions: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit', hour12: false };
     const dateOptions: Intl.DateTimeFormatOptions = { day: '2-digit', month: '2-digit' };
 
     const hourBlocks = [];
-    for (let i = 0; i < Math.floor(totalHours); i++) {
+    for (let i = 0; i < totalHours; i++) {
         const date = new Date(startDate.getTime() + i * 60 * 60 * 1000);
         const dayChanged = date.getHours() === 0 && i > 0;
         

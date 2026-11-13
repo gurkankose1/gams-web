@@ -1435,23 +1435,29 @@ const App: React.FC<{ user: User }> = ({ user }) => {
         if (file) {
             const reader = new FileReader();
             reader.onload = (e) => {
-                const data = e.target?.result;
-                if (data) {
-                    const workbook = XLSX.read(data, { type: 'array', cellDates: true });
-                    const sheetName = workbook.SheetNames[0];
-                    const sheet = workbook.Sheets[sheetName];
-                    const jsonData = XLSX.utils.sheet_to_json(sheet);
-                    const rawHeaders = XLSX.utils.sheet_to_json(sheet, { header: 1 })[0] as string[];
-                    
-                    const headerCounts = new Map<string, number>();
-                    const uniqueHeaders = rawHeaders.map(h => {
-                        const count = headerCounts.get(h) || 0;
-                        headerCounts.set(h, count + 1);
-                        return count > 0 ? `${h}_${count}` : h;
-                    });
-                    
-                    excelData.current = { data: jsonData, headers: uniqueHeaders };
-                    setMappingModalOpen(true);
+                try {
+                    const data = e.target?.result;
+                    if (data) {
+                        const workbook = XLSX.read(data, { type: 'array', cellDates: true });
+                        const sheetName = workbook.SheetNames[0];
+                        const sheet = workbook.Sheets[sheetName];
+                        const jsonData = XLSX.utils.sheet_to_json(sheet);
+                        const headerRows = XLSX.utils.sheet_to_json(sheet, { header: 1, range: 0 }) as any[][];
+                        const rawHeaders = Array.isArray(headerRows?.[0]) ? headerRows[0].map(h => String(h ?? '')) : [];
+                        
+                        const headerCounts = new Map<string, number>();
+                        const uniqueHeaders = rawHeaders.map(h => {
+                            const count = headerCounts.get(h) || 0;
+                            headerCounts.set(h, count + 1);
+                            return count > 0 ? `${h}_${count}` : h;
+                        });
+                        
+                        excelData.current = { data: jsonData, headers: uniqueHeaders };
+                        setMappingModalOpen(true);
+                    }
+                } catch (err) {
+                    console.error('Excel okuma hatası:', err);
+                    alert('Excel dosyası okunurken bir hata oluştu. Dosyanın bozuk olmadığını kontrol edin.');
                 }
             };
             reader.readAsArrayBuffer(file);
@@ -1490,19 +1496,34 @@ const App: React.FC<{ user: User }> = ({ user }) => {
             userHasResized.current = false;
     
             // Automatically adjust startDate and endDate to match imported flights date range!
-            const validArrivals = flightsWithHistory.map(f => f.scheduledArrival.getTime()).filter(t => !isNaN(t) && t > 0);
-            const validDepartures = flightsWithHistory.map(f => f.scheduledDeparture.getTime()).filter(t => !isNaN(t) && t > 0);
+            const MIN_REASONABLE_MS = Date.UTC(2015, 0, 1);
+            const MAX_REASONABLE_MS = Date.UTC(2035, 0, 1);
+            let minArrivalMs = Infinity;
+            let maxDepartureMs = -Infinity;
+            for (const f of flightsWithHistory) {
+                const aMs = f.scheduledArrival instanceof Date ? f.scheduledArrival.getTime() : NaN;
+                const dMs = f.scheduledDeparture instanceof Date ? f.scheduledDeparture.getTime() : NaN;
+                if (!isNaN(aMs) && aMs >= MIN_REASONABLE_MS && aMs <= MAX_REASONABLE_MS) {
+                    if (aMs < minArrivalMs) minArrivalMs = aMs;
+                }
+                if (!isNaN(dMs) && dMs >= MIN_REASONABLE_MS && dMs <= MAX_REASONABLE_MS) {
+                    if (dMs > maxDepartureMs) maxDepartureMs = dMs;
+                }
+            }
 
-            if (validArrivals.length > 0) {
-                const minArrivalMs = Math.min(...validArrivals);
-                const maxDepartureMs = validDepartures.length > 0 ? Math.max(...validDepartures) : minArrivalMs + 24 * 60 * 60 * 1000;
-
+            if (minArrivalMs !== Infinity) {
                 const firstFlightArrival = new Date(minArrivalMs);
                 const newStart = new Date(minArrivalMs);
                 newStart.setHours(0, 0, 0, 0);
                 setStartDate(newStart);
 
-                const newEnd = new Date(Math.max(maxDepartureMs, minArrivalMs + 24 * 60 * 60 * 1000));
+                const MAX_TIMELINE_SPAN_MS = 21 * 24 * 60 * 60 * 1000;
+                const safeMaxDepMs = maxDepartureMs !== -Infinity ? maxDepartureMs : minArrivalMs + 24 * 60 * 60 * 1000;
+                const cappedEndMs = Math.min(
+                    Math.max(safeMaxDepMs, minArrivalMs + 24 * 60 * 60 * 1000),
+                    newStart.getTime() + MAX_TIMELINE_SPAN_MS
+                );
+                const newEnd = new Date(cappedEndMs);
                 newEnd.setHours(23, 59, 59, 999);
                 setEndDate(newEnd);
 
@@ -1565,14 +1586,22 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                 }
             });
 
+            const rawRowIndexMap = new Map<any, number>();
+            if (excelData.current) {
+                excelData.current.data.forEach((rowObj, i) => rawRowIndexMap.set(rowObj, i));
+            }
+
             const unassignedList = unassignedFlights.map((f, idx) => {
-                const rowIdx = f.raw_data && excelData.current ? (excelData.current.data.indexOf(f.raw_data) ?? idx) + 2 : idx + 2;
+                const mappedIdx = f.raw_data ? rawRowIndexMap.get(f.raw_data) : undefined;
+                const rowIdx = (mappedIdx !== undefined ? mappedIdx : idx) + 2;
                 const timeOptions: Intl.DateTimeFormatOptions = { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' };
+                const arrStr = f.scheduledArrival instanceof Date && !isNaN(f.scheduledArrival.getTime()) ? f.scheduledArrival.toLocaleString('tr-TR', timeOptions) : '?';
+                const depStr = f.scheduledDeparture instanceof Date && !isNaN(f.scheduledDeparture.getTime()) ? f.scheduledDeparture.toLocaleString('tr-TR', timeOptions) : '?';
                 const timeStr = f.type === 'turnaround'
-                    ? `${f.scheduledArrival.toLocaleString('tr-TR', timeOptions)} - ${f.scheduledDeparture.toLocaleString('tr-TR', timeOptions)}`
+                    ? `${arrStr} - ${depStr}`
                     : f.type === 'arrival'
-                    ? `ARR: ${f.scheduledArrival.toLocaleString('tr-TR', timeOptions)}`
-                    : `DEP: ${f.scheduledDeparture.toLocaleString('tr-TR', timeOptions)}`;
+                    ? `ARR: ${arrStr}`
+                    : `DEP: ${depStr}`;
 
                 const originDest = f.type === 'turnaround'
                     ? `${f.origin || '?'} ➔ ${f.destination || '?'}`
@@ -1587,9 +1616,19 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                 };
             });
 
-            const allDates = flightsWithHistory.flatMap(f => [f.scheduledArrival, f.scheduledDeparture]).filter(d => !isNaN(d.getTime()));
-            const minDate = allDates.length > 0 ? new Date(Math.min(...allDates.map(d => d.getTime()))) : undefined;
-            const maxDate = allDates.length > 0 ? new Date(Math.max(...allDates.map(d => d.getTime()))) : undefined;
+            let minReportMs = Infinity;
+            let maxReportMs = -Infinity;
+            for (const f of flightsWithHistory) {
+                for (const d of [f.scheduledArrival, f.scheduledDeparture]) {
+                    const t = d instanceof Date ? d.getTime() : NaN;
+                    if (!isNaN(t)) {
+                        if (t < minReportMs) minReportMs = t;
+                        if (t > maxReportMs) maxReportMs = t;
+                    }
+                }
+            }
+            const minDate = minReportMs !== Infinity ? new Date(minReportMs) : undefined;
+            const maxDate = maxReportMs !== -Infinity ? new Date(maxReportMs) : undefined;
 
             setImportReport({
                 totalExcelRows,
