@@ -12,6 +12,7 @@ import {
     CAT_F_HEAVY_STANDS 
 } from './ams-rules.ts';
 import { getFidsPublicationStatus, FidsPublicationStatus } from './fids-service.ts';
+import { calculateRevenue } from './revenue-calculator.ts';
 
 export interface FidsAdvisoryWarning {
     flightId: string;
@@ -648,6 +649,26 @@ export interface SwapDetail {
         stand: string;
     }[];
     netGain: number;
+    revenueGainEur?: number;
+    swapType?: 'OCC_REVENUE_SWAP' | 'CAPACITY_SWAP';
+}
+
+export interface RevenueSwapSummary {
+    swapsCount: number;
+    netRevenueGainEur: number;
+    initialRevenueEur: number;
+    finalRevenueEur: number;
+    bridgeCountBefore: number;
+    bridgeCountAfter: number;
+    bridgeRateMaintained: boolean;
+    details: {
+        bridgeFlightCallsign: string;
+        remoteFlightCallsign: string;
+        bridgeStand: string;
+        remoteStand: string;
+        revenueGainEur: number;
+        reason: string;
+    }[];
 }
 
 export interface AiAllocationResult {
@@ -658,6 +679,7 @@ export interface AiAllocationResult {
     netFlightsGained: number;
     gapFillsPerformed: number;
     bufferSmoothedCount: number;
+    revenueSwapSummary?: RevenueSwapSummary;
     fidsWarnings?: FidsAdvisoryWarning[];
     fidsLockedCount?: number;
     timeFilteredFlightCount?: number;
@@ -2402,9 +2424,251 @@ export function runAiBridgeAllocation(
     const scratchResult = runFromScratchAllocation(allFlights, startDate, endDate, maintenanceBlocks, options);
 
     // If elevateResult exists and achieved >= bridge assigned count, prefer it!
+    let phase1Result: AiAllocationResult;
     if (elevateResult && elevateResult.stats.bridgeAssignedCount >= scratchResult.stats.bridgeAssignedCount) {
-        return elevateResult;
+        phase1Result = elevateResult;
+    } else {
+        phase1Result = scratchResult;
     }
 
-    return scratchResult;
+    // -----------------------------------------------------------------------
+    // FAZ 2: KÖPRÜ KULLANIM ORANINI KORUYARAK GELİR MAKSİMİZASYON TAKASI
+    // (OCC Revenue Swap Engine)
+    // -----------------------------------------------------------------------
+    const revenueEnhancedResult = runRevenueMaximizationSwapPass(
+        phase1Result,
+        startDate,
+        endDate,
+        maintenanceBlocks,
+        options
+    );
+
+    return revenueEnhancedResult;
+}
+
+/**
+ * FAZ 2: KÖPRÜ KULLANIM ORANI SABİT TUTULARAK GELİR MAKSİMİZASYONU
+ *
+ * Mantık:
+ * 1. Faz 1'de ulaşılan maksimum köprü kullanım oranı ve köprüye bağlanan uçuş sayısı kesinlikle düşürülemez.
+ * 2. Köprüdeki düşük gelirli/küçük MTOW'lu uçaklar ile açıktaki (remote) yüksek gelirli/geniş gövdeli/yüksek yolculu uçaklar taranır.
+ * 3. 1'e 1 ve 1'e N takaslar denenir; sadece pozitif gelir farkı (+€) sağlayan ve tüm AMS/MARS kurallarını sağlayan takaslar commit edilir.
+ * 4. Takas sonrası sistem yeniden taranır (iteratif döngü).
+ */
+export function runRevenueMaximizationSwapPass(
+    phase1Result: AiAllocationResult,
+    startDate?: Date,
+    endDate?: Date,
+    maintenanceBlocks?: MaintenanceBlock[],
+    options?: AiAllocationOptions
+): AiAllocationResult {
+    const workingFlights: Flight[] = phase1Result.flights.map(f => ({ ...f }));
+    const initialBridgeCount = workingFlights.filter(f => f.parkingPosition && isContactStand(f.parkingPosition)).length;
+    
+    // Toplam başlangıç geliri
+    const calcTotalRev = (list: Flight[]) => list.reduce((sum, f) => sum + (calculateRevenue(f).totalEur || 0), 0);
+    const initialRevenueEur = Math.round(calcTotalRev(workingFlights));
+
+    const revenueSwapDetails: RevenueSwapSummary['details'] = [];
+    const addedSwapDetails: SwapDetail[] = [];
+    let performedRevenueSwaps = 0;
+
+    // İteratif tarama (En fazla 6 iterasyon)
+    const MAX_ITERATIONS = 6;
+    for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
+        let swapFoundInIter = false;
+
+        // Köprüdeki ve açıktaki uçuşları ayıkla
+        const bridgeFlights = workingFlights.filter(f => {
+            if (!f.parkingPosition || !isContactStand(f.parkingPosition)) return false;
+            if (isOperationalLockedFlight(f)) return false;
+            if (options && isFlightLockedByFidsOrTime(f, options)) return false;
+            return true;
+        });
+
+        const remoteFlights = workingFlights.filter(f => {
+            if (!f.parkingPosition || isContactStand(f.parkingPosition)) return false;
+            if (!isFlightBridgeEligible(f)) return false;
+            if (isOperationalLockedFlight(f)) return false;
+            if (options && isFlightLockedByFidsOrTime(f, options)) return false;
+            return true;
+        });
+
+        // Açıktaki uçakları potansiyel gelirlerine göre azalan sırada sırala
+        remoteFlights.sort((a, b) => {
+            // Açıktaki uçak köprüye bağlansa ne kadar üretirdi?
+            const dummyA = { ...a, parkingPosition: 'A1' };
+            const dummyB = { ...b, parkingPosition: 'A1' };
+            return (calculateRevenue(dummyB).totalEur || 0) - (calculateRevenue(dummyA).totalEur || 0);
+        });
+
+        // Köprüdeki uçakları mevcut gelirlerine göre artan sırada sırala (en düşük gelirli köprü uçağı en önce takas adayı)
+        bridgeFlights.sort((a, b) => {
+            return (calculateRevenue(a).totalEur || 0) - (calculateRevenue(b).totalEur || 0);
+        });
+
+        // 1-to-1 ve Stand İçi Swap Arama
+        for (const remoteF of remoteFlights) {
+            let remoteSwapped = false;
+
+            const remArr = remoteF.scheduledArrival.getTime();
+            const remDep = remoteF.scheduledDeparture.getTime();
+            const remCategory = getAircraftCategory(remoteF.aircraftType || '');
+            const remIsWide = remCategory === 'D' || remCategory === 'E' || remCategory === 'F';
+            const remIsHeavy = remCategory === 'F';
+            const remAllowedConcourses = getAllowedBridgeConcourses(remoteF);
+
+            for (const bridgeF of bridgeFlights) {
+                const bridgeStand = bridgeF.parkingPosition!;
+                const bridgeConcourse = Object.keys(CONCOURSE_LAYOUT).find(c => CONCOURSE_LAYOUT[c]?.includes(bridgeStand)) || '';
+
+                // İskele izinleri uyumlu mu?
+                if (remAllowedConcourses.length > 0 && !remAllowedConcourses.some(allowed => bridgeConcourse.toUpperCase().includes(allowed.toUpperCase()))) {
+                    continue;
+                }
+
+                // Zaman aralığı uyumlu mu? Açıktaki uçak köprüdeki uçağın penceresine sığıyor mu?
+                const brgArr = bridgeF.scheduledArrival.getTime();
+                const brgDep = bridgeF.scheduledDeparture.getTime();
+
+                // 25 dk minimum tampon ile pencere kontrolü
+                const BUFFER_MS = 25 * 60 * 1000;
+                const fitsInTimeWindow = remArr >= (brgArr - BUFFER_MS) && remDep <= (brgDep + BUFFER_MS);
+
+                if (!fitsInTimeWindow) continue;
+
+                // Gelir farkı kontrolü: Açıktaki uçak bu köprüde daha fazla gelir üretiyor mu?
+                const currentBrgRev = calculateRevenue(bridgeF).totalEur || 0;
+                const hypotheticalRem = { ...remoteF, parkingPosition: bridgeStand };
+                const projectedRemRev = calculateRevenue(hypotheticalRem).totalEur || 0;
+
+                const revenueGain = projectedRemRev - currentBrgRev;
+                // En az €35 net gelir artışı şartı
+                if (revenueGain < 35) continue;
+
+                // Topoloji üzerinde çakışma ve AMS/MARS kuralları simülasyonu
+                const testTopology = buildStandTopology(maintenanceBlocks);
+                let conflict = false;
+
+                // Diğer tüm uçuşları yerleştir (bu iki uçuş hariç)
+                for (const otherF of workingFlights) {
+                    if (otherF.id === bridgeF.id || otherF.id === remoteF.id) continue;
+                    if (!otherF.parkingPosition || !isContactStand(otherF.parkingPosition)) continue;
+
+                    const sched = testTopology.get(otherF.parkingPosition);
+                    if (sched) {
+                        placeOnStand(sched, otherF.scheduledArrival.getTime(), otherF.scheduledDeparture.getTime(), otherF.id);
+                    }
+                }
+
+                // Açıktaki uçağı köprü standına koymayı dene
+                const targetSched = testTopology.get(bridgeStand);
+                if (!targetSched) continue;
+
+                const fits = canFitOnStand(targetSched, remArr, remDep, remIsWide, testTopology, remIsHeavy);
+                if (!fits) continue;
+
+                // Bakım bloğu çakışması var mı?
+                if (hasMaintenanceConflict(bridgeStand, remoteF.scheduledArrival, remoteF.scheduledDeparture, maintenanceBlocks)) {
+                    continue;
+                }
+
+                // TAKAS ONAYLANDI!
+                const oldRemoteStand = remoteF.parkingPosition || 'REMOTE';
+                
+                // Köprüdeki uçağı açığa (remoteF'nin pozisyonuna veya güvenli açığa), açıktaki uçağı köprüye al
+                bridgeF.parkingPosition = oldRemoteStand;
+                remoteF.parkingPosition = bridgeStand;
+
+                // Gate senkronizasyonu
+                if (isContactStand(bridgeStand)) {
+                    remoteF.gate = bridgeStand;
+                }
+
+                performedRevenueSwaps++;
+                swapFoundInIter = true;
+                remoteSwapped = true;
+
+                const bridgeCallsign = bridgeF.departureFlightNumber || bridgeF.arrivalFlightNumber || bridgeF.id;
+                const remoteCallsign = remoteF.departureFlightNumber || remoteF.arrivalFlightNumber || remoteF.id;
+
+                revenueSwapDetails.push({
+                    bridgeFlightCallsign: bridgeCallsign,
+                    remoteFlightCallsign: remoteCallsign,
+                    bridgeStand,
+                    remoteStand: oldRemoteStand,
+                    revenueGainEur: Math.round(revenueGain),
+                    reason: `Körük geliri artırımı: ${remoteCallsign} (${remoteF.aircraftType || 'A/C'}) köprüye alındı, ${bridgeCallsign} açığa aktarıldı (+€${Math.round(revenueGain)})`
+                });
+
+                addedSwapDetails.push({
+                    stand: bridgeStand,
+                    concourse: bridgeConcourse,
+                    removedFlight: {
+                        id: bridgeF.id,
+                        callsign: bridgeCallsign,
+                        acType: bridgeF.aircraftType || '',
+                        durationHours: Math.round((brgDep - brgArr) / 3600000)
+                    },
+                    sentToRemote: oldRemoteStand,
+                    gainedFlights: [{
+                        id: remoteF.id,
+                        callsign: remoteCallsign,
+                        acType: remoteF.aircraftType || '',
+                        stand: bridgeStand
+                    }],
+                    netGain: 0, // Köprü sayısı sabit kaldı (+0 net gain in count, +€ in revenue)
+                    revenueGainEur: Math.round(revenueGain),
+                    swapType: 'OCC_REVENUE_SWAP'
+                });
+
+                break; // bridgeFlights döngüsünden çık, bir sonraki remote'a geç
+            }
+
+            if (remoteSwapped) break; // İterasyonu yeniden tara
+        }
+
+        if (!swapFoundInIter) {
+            // Başka takas imkanı kalmadı, döngüyü sonlandır
+            break;
+        }
+    }
+
+    // Son köprü kullanım istatistiklerini hesapla
+    const finalStats = calculateBridgeUtilization(workingFlights, startDate, endDate);
+    const finalBridgeCount = workingFlights.filter(f => f.parkingPosition && isContactStand(f.parkingPosition)).length;
+    const finalRevenueEur = Math.round(calcTotalRev(workingFlights));
+    const netRevenueGainEur = Math.max(0, finalRevenueEur - initialRevenueEur);
+
+    // KÖPRÜ KULLANIM ORANI KONTROLÜ:
+    // Eğer köprü sayısı düştüyse (asla olmamalı ama garanti koruma), Faz 1 sonucunu aynen iade et!
+    if (finalBridgeCount < initialBridgeCount) {
+        console.warn('Revenue swap pass could not maintain bridge count! Falling back to Phase 1 allocation.');
+        return phase1Result;
+    }
+
+    const revenueSummary: RevenueSwapSummary = {
+        swapsCount: performedRevenueSwaps,
+        netRevenueGainEur,
+        initialRevenueEur,
+        finalRevenueEur,
+        bridgeCountBefore: initialBridgeCount,
+        bridgeCountAfter: finalBridgeCount,
+        bridgeRateMaintained: finalBridgeCount >= initialBridgeCount,
+        details: revenueSwapDetails
+    };
+
+    return {
+        flights: workingFlights,
+        stats: finalStats,
+        swapDetails: [...phase1Result.swapDetails, ...addedSwapDetails],
+        totalSwapsPerformed: phase1Result.totalSwapsPerformed + performedRevenueSwaps,
+        netFlightsGained: phase1Result.netFlightsGained,
+        gapFillsPerformed: phase1Result.gapFillsPerformed,
+        bufferSmoothedCount: phase1Result.bufferSmoothedCount,
+        revenueSwapSummary: revenueSummary,
+        fidsWarnings: phase1Result.fidsWarnings,
+        fidsLockedCount: phase1Result.fidsLockedCount,
+        timeFilteredFlightCount: phase1Result.timeFilteredFlightCount
+    };
 }

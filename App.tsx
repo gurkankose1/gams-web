@@ -1038,14 +1038,15 @@ const App: React.FC<{ user: User }> = ({ user }) => {
         setTimeout(() => {
             try {
                 const initialStats = calculateBridgeUtilization(flights, startDate, endDate);
-                const { flights: newFlights, stats, swapDetails, totalSwapsPerformed, netFlightsGained, gapFillsPerformed, bufferSmoothedCount, fidsWarnings, fidsLockedCount, timeFilteredFlightCount } = runAiBridgeAllocation(flights, startDate, endDate, maintenanceBlocks, options);
+                const { flights: newFlights, stats, swapDetails, totalSwapsPerformed, netFlightsGained, gapFillsPerformed, bufferSmoothedCount, revenueSwapSummary, fidsWarnings, fidsLockedCount, timeFilteredFlightCount } = runAiBridgeAllocation(flights, startDate, endDate, maintenanceBlocks, options);
 
                 const fidsMsg = (fidsLockedCount && fidsLockedCount > 0) ? `, 🛡️ ${fidsLockedCount} FIDS Kilitli` : '';
                 const timeMsg = (timeFilteredFlightCount && timeFilteredFlightCount > 0) ? `, ⏱️ ${timeFilteredFlightCount} Zaman Dışı Korundu` : '';
+                const revGainMsg = (revenueSwapSummary && revenueSwapSummary.netRevenueGainEur > 0) ? `, 💶 +€${revenueSwapSummary.netRevenueGainEur.toLocaleString('tr-TR')} Gelir Kazancı (${revenueSwapSummary.swapsCount} Takas)` : '';
 
                 const newHistoryEntry: FlightHistoryEntry = {
                     user: currentUser.username,
-                    action: `AI Skor Planlama yapıldı (Köprü Oranı: %${stats.bridgeRate.toFixed(1)}, ${totalSwapsPerformed} akıllı takas${fidsMsg}${timeMsg}).`,
+                    action: `AI Skor & Gelir Takas Planlaması yapıldı (Köprü Oranı: %${stats.bridgeRate.toFixed(1)}, ${totalSwapsPerformed} akıllı takas${revGainMsg}${fidsMsg}${timeMsg}).`,
                     timestamp: new Date()
                 };
 
@@ -1080,7 +1081,7 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                 }
 
                 const smoothMsg = (bufferSmoothedCount && bufferSmoothedCount > 0) ? `, 🛡️ ${bufferSmoothedCount} Tampon Dengelendi` : '';
-                setAllocationMessage(`⚡ AI Skor Planlama Tamamlandı: %${stats.bridgeRate.toFixed(1)} Köprü Oranı (${stats.bridgeAssignedCount} / ${stats.eligibleFlightsCount} Yolcu Körükte, ${totalSwapsPerformed} Akıllı Takas${smoothMsg}${fidsMsg})`);
+                setAllocationMessage(`⚡ AI Skor & Gelir Takası Tamamlandı: %${stats.bridgeRate.toFixed(1)} Köprü Oranı (${stats.bridgeAssignedCount} / ${stats.eligibleFlightsCount} Yolcu Körükte${revGainMsg}${smoothMsg}${fidsMsg})`);
                 setTimeout(() => setAllocationMessage(null), 8000);
 
                 // Open AI Report Card Modal
@@ -1091,6 +1092,8 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                     totalSwapsPerformed,
                     netFlightsGained,
                     gapFillsPerformed,
+                    bufferSmoothedCount,
+                    revenueSwapSummary,
                     fidsWarnings,
                     fidsLockedCount,
                     timeFilteredFlightCount
@@ -2098,35 +2101,35 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                                 Tümünü Havuza Çek
                             </button>
 
-                            {/* 🟣 AI PLANLA: SENARYO 1 (MAKSİMUM KÖPRÜ) */}
+                            {/* 🟣 AI KÖPRÜ & REVENUE SWAP PLANLAMA (TEK BİRLEŞİK MOTOR) */}
                             <button 
                                 onClick={() => setIsAiScorePlannerModalOpen(true)}
                                 disabled={flights.length === 0 || isAiAllocating}
-                                className={`flex items-center gap-1.5 px-3 py-1.5 font-semibold rounded-lg text-white shadow-md transition duration-200 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer select-none border border-purple-400/40 ${
+                                className={`flex items-center gap-1.5 px-3.5 py-1.5 font-bold rounded-lg text-white shadow-lg transition duration-200 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer select-none border border-purple-400/50 ${
                                     isAiAllocating 
                                         ? 'bg-purple-800 animate-pulse' 
-                                        : 'bg-gradient-to-r from-purple-600 via-indigo-600 to-purple-600 hover:from-purple-500 hover:to-indigo-500 shadow-purple-600/30'
+                                        : 'bg-gradient-to-r from-purple-600 via-indigo-600 to-emerald-600 hover:from-purple-500 hover:via-indigo-500 hover:to-emerald-500 shadow-indigo-700/40'
                                 }`}
-                                title="AI Skor Planla: Hızlı kural ve skor tabanlı deterministik köprü planlaması"
+                                title="AI Skor & Gelir Takas Planla: Önce maksimum köprü kullanım oranını kurgular, ardından köprü oranını sabit tutarak açıktaki uçaklarla köprüdekileri gelir artırıcı şekilde takaslar."
                             >
                                 <svg className={`w-3.5 h-3.5 text-purple-200 ${isAiAllocating ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
                                 </svg>
-                                {isAiAllocating ? 'Skor Planlanıyor...' : '⚡ AI Skor Planla'}
+                                <span>{isAiAllocating ? 'Planlanıyor & Takaslanıyor...' : '⚡ AI Skor & Gelir Takasla'}</span>
+                                <span className="text-[10px] font-black px-1.5 py-0.2 rounded bg-emerald-400 text-gray-950 shadow-sm ml-0.5">
+                                    Maks Köprü + € Swap
+                                </span>
                             </button>
 
-                            {/* 🟢 OCC AI CO-PİLOT (CANLI FIRSATLAR & GELİR) */}
+                            {/* 🟢 OCC AI CO-PİLOT (MANUEL FIRSAT LİSTESİ) */}
                             <button 
                                 onClick={() => setIsCopilotOpen(true)}
                                 disabled={flights.length === 0}
-                                className="flex items-center gap-1.5 px-3 py-1.5 font-semibold rounded-lg text-white shadow-md transition duration-200 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer select-none border border-emerald-400/50 bg-gradient-to-r from-teal-600 via-emerald-600 to-indigo-600 hover:from-teal-500 hover:to-emerald-500 shadow-emerald-700/30"
-                                title="Körük doluluk oranını artırmak için canlı AI Co-Pilot fırsatlarını ve ek gelir analizini aç"
+                                className="flex items-center gap-1 px-2.5 py-1.5 font-semibold rounded-lg text-gray-200 hover:text-white shadow transition duration-200 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer select-none border border-gray-700/80 bg-gray-800/80 hover:bg-gray-750"
+                                title="Tekil fırsatları ve teşhisleri incelemek için OCC Co-Pilot panelini aç"
                             >
                                 <span className="text-sm">🤖</span>
-                                <span>OCC AI Co-Pilot</span>
-                                <span className="text-[10px] font-extrabold px-1.5 py-0.2 rounded bg-emerald-300 text-gray-950 shadow-sm">
-                                    Fırsatlar
-                                </span>
+                                <span>Co-Pilot Detay</span>
                             </button>
 
                             {/* 🚨 DİNAMİK DİVERT & KRİZ KAPASİTE (DAC) */}

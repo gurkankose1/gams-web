@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { BridgeUtilizationStats, SwapDetail, FidsAdvisoryWarning } from '../services/ai-allocator.ts';
+import { BridgeUtilizationStats, SwapDetail, FidsAdvisoryWarning, RevenueSwapSummary } from '../services/ai-allocator.ts';
 
 export interface AiReportData {
     stats: BridgeUtilizationStats;
@@ -8,6 +8,8 @@ export interface AiReportData {
     totalSwapsPerformed: number;
     netFlightsGained: number;
     gapFillsPerformed: number;
+    bufferSmoothedCount?: number;
+    revenueSwapSummary?: RevenueSwapSummary;
     fidsWarnings?: FidsAdvisoryWarning[];
     fidsLockedCount?: number;
     timeFilteredFlightCount?: number;
@@ -80,6 +82,11 @@ const AiAllocationReportModal: React.FC<AiAllocationReportModalProps> = ({ isOpe
                         }`}
                     >
                         <span>🔄</span> Yapılan Akıllı Takaslar ({totalSwapsPerformed})
+                        {report.revenueSwapSummary && report.revenueSwapSummary.swapsCount > 0 && (
+                            <span className="text-[10px] bg-emerald-500/30 text-emerald-300 px-1.5 py-0.2 rounded font-extrabold border border-emerald-500/40">
+                                +€{report.revenueSwapSummary.netRevenueGainEur.toLocaleString('tr-TR')} Gelir
+                            </span>
+                        )}
                     </button>
                     <button
                         onClick={() => setActiveTab('rules')}
@@ -210,8 +217,12 @@ const AiAllocationReportModal: React.FC<AiAllocationReportModalProps> = ({ isOpe
                                         <div className="text-base font-bold text-emerald-400 mt-0.5">+{netFlightsGained} Uçuş</div>
                                     </div>
                                     <div className="bg-gray-800/80 rounded-lg p-2.5 border border-gray-700/60">
-                                        <div className="text-gray-400">Açık Apronlara Yönlendirilen:</div>
-                                        <div className="text-base font-bold text-gray-300 mt-0.5">{stats.remoteAssignedCount} Uçuş</div>
+                                        <div className="text-gray-400">Gelir Takas Kazancı:</div>
+                                        <div className="text-base font-bold text-emerald-400 mt-0.5">
+                                            {report.revenueSwapSummary && report.revenueSwapSummary.netRevenueGainEur > 0
+                                                ? `+€${report.revenueSwapSummary.netRevenueGainEur.toLocaleString('tr-TR')}`
+                                                : 'Maksimum Seviyede'}
+                                        </div>
                                     </div>
                                 </div>
 

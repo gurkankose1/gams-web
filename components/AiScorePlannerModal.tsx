@@ -134,11 +134,11 @@ export const AiScorePlannerModal: React.FC<AiScorePlannerModalProps> = ({
                     <div className="flex items-center gap-2.5">
                         <span className="text-2xl">⚡</span>
                         <div>
-                            <h2 className="text-lg font-bold bg-gradient-to-r from-purple-300 via-indigo-200 to-amber-300 bg-clip-text text-transparent">
-                                AI Skor Planlama & Otomatik Kapı Tahsis Yapılandırması
+                            <h2 className="text-lg font-bold bg-gradient-to-r from-purple-300 via-indigo-200 to-emerald-300 bg-clip-text text-transparent">
+                                AI Skor & Gelir Takas (Revenue Swap) Motoru
                             </h2>
                             <p className="text-xs text-gray-400 mt-0.5">
-                                Kural tabanlı deterministik köprü optimizasyonu, FIDS kapı kilitleri ve zaman filtreleme
+                                1. Faz: Maksimum köprü oranı planlaması → 2. Faz: Köprü oranını koruyarak gelir artırıcı takaslar
                             </p>
                         </div>
                     </div>
@@ -386,10 +386,10 @@ export const AiScorePlannerModal: React.FC<AiScorePlannerModalProps> = ({
                     </button>
                     <button
                         onClick={handleSubmit}
-                        className="px-5 py-2.5 rounded-lg font-bold text-white shadow-lg transition duration-200 cursor-pointer flex items-center gap-2 bg-gradient-to-r from-purple-600 via-indigo-600 to-purple-600 hover:from-purple-500 hover:to-indigo-500 shadow-purple-900/40 text-xs border border-purple-400/40"
+                        className="px-5 py-2.5 rounded-lg font-bold text-white shadow-lg transition duration-200 cursor-pointer flex items-center gap-2 bg-gradient-to-r from-purple-600 via-indigo-600 to-emerald-600 hover:from-purple-500 hover:via-indigo-500 hover:to-emerald-500 shadow-indigo-900/40 text-xs border border-purple-400/40"
                     >
                         <span>⚡</span>
-                        Seçili Parametrelerle AI Skor Planla
+                        Maksimum Köprü & Gelir Takasını Başlat
                     </button>
                 </footer>
 
