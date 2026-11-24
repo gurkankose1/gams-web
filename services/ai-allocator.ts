@@ -46,6 +46,11 @@ export interface BridgeUtilizationStats {
     propCount: number;
     noAcCount: number;
     bridgeRate: number; // e.g. 84.5%
+    // xPBB (Expected PBB) fields
+    xPbbRate: number; // e.g. 84.2%
+    deltaPbb: number; // bridgeRate - xPbbRate
+    avgGroundTimeMins: number;
+    widebodyRatio: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -300,6 +305,9 @@ export function calculateBridgeUtilization(
     let propCount = 0;
     let noAcCount = 0;
     let consideredFlightsCount = 0;
+    let widebodyCount = 0;
+    let totalGroundTimeMins = 0;
+    let validGroundTimeCount = 0;
 
     const startMs = startDate ? startDate.getTime() : 0;
     const endMs = endDate ? endDate.getTime() : Infinity;
@@ -350,6 +358,22 @@ export function calculateBridgeUtilization(
 
         // Eligible Passenger Flight (Sadece köprüye alınabilir yolcu uçuşları)
         eligibleCount++;
+        
+        // Track widebody
+        const cat = getAircraftCategory(f.aircraftType);
+        if (cat === 'E' || cat === 'F') {
+            widebodyCount++;
+        }
+
+        // Track ground time if available
+        if (f.scheduledArrival && f.scheduledDeparture) {
+            const gt = (f.scheduledDeparture.getTime() - f.scheduledArrival.getTime()) / (1000 * 60);
+            if (gt >= 30 && gt <= 360) {
+                totalGroundTimeMins += gt;
+                validGroundTimeCount++;
+            }
+        }
+
         if (f.parkingPosition) {
             if (isContactStand(f.parkingPosition)) {
                 bridgeAssigned++;
@@ -362,6 +386,20 @@ export function calculateBridgeUtilization(
     });
 
     const bridgeRate = eligibleCount > 0 ? (bridgeAssigned / eligibleCount) * 100 : 0;
+    const avgGt = validGroundTimeCount > 0 ? Math.round(totalGroundTimeMins / validGroundTimeCount) : 142;
+    const wideRatio = eligibleCount > 0 ? (widebodyCount / eligibleCount) : 0.245;
+
+    // xPBB (Expected PBB) Bütünleşik Formülü
+    // Baz tavan: %92.0 | GT esnemesi (ref 140dk): her 10 dk gecikme ~ %1.8 düşürür | Widebody esnemesi (ref %24.5) | Hacim
+    const gtDiff = (avgGt - 140) / 140;
+    const wideDiff = (wideRatio - 0.245);
+    const flightVolFactor = eligibleCount > 0 ? Math.min(0.02, (eligibleCount - 650) / 650 * 0.05) : 0;
+
+    let calcXpbb = 91.5 - (0.25 * gtDiff * 100) - (0.16 * wideDiff * 100) + (flightVolFactor * 100);
+    // Boundary clamp: %78 ile %93 arasında
+    calcXpbb = Math.max(78.0, Math.min(93.0, calcXpbb));
+    const finalXpbb = Math.round(calcXpbb * 10) / 10;
+    const delta = Math.round((bridgeRate - finalXpbb) * 10) / 10;
 
     return {
         totalFlights: consideredFlightsCount,
@@ -373,7 +411,11 @@ export function calculateBridgeUtilization(
         gaCount,
         propCount,
         noAcCount,
-        bridgeRate: Math.round(bridgeRate * 10) / 10
+        bridgeRate: Math.round(bridgeRate * 10) / 10,
+        xPbbRate: finalXpbb,
+        deltaPbb: delta,
+        avgGroundTimeMins: avgGt,
+        widebodyRatio: Math.round(wideRatio * 1000) / 10
     };
 }
 

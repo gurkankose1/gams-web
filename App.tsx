@@ -35,6 +35,7 @@ import { database } from './firebase.ts';
 import { ref, onValue, set, update, remove } from 'firebase/database';
 import { User } from 'firebase/auth';
 import { signOutUser } from './auth/auth-service.ts';
+import DashboardPortal from './components/DashboardPortal.tsx';
 
 const SINGLE_LEG_DURATION_MS = 60 * 60 * 1000; // 1 hour for visualization
 
@@ -688,6 +689,40 @@ const App: React.FC<{ user: User }> = ({ user }) => {
     const [maintenanceBlocks, setMaintenanceBlocks] = useState<MaintenanceBlock[]>([]);
     const [gateList, setGateList] = useState<string[]>(GATES);
     const [currentView, setCurrentView] = useState<'parking' | 'gate'>('parking');
+
+    // Dashboard portal or Planning screen module selection
+    const [activeAppModule, setActiveAppModule] = useState<'dashboard' | 'planning'>(() => {
+        if (typeof window !== 'undefined' && window.location.hash === '#planning') {
+            return 'planning';
+        }
+        return 'dashboard';
+    });
+
+    useEffect(() => {
+        const handleHashChange = () => {
+            if (window.location.hash === '#planning') {
+                setActiveAppModule('planning');
+            } else if (window.location.hash === '#dashboard' || !window.location.hash) {
+                setActiveAppModule('dashboard');
+            }
+        };
+        window.addEventListener('hashchange', handleHashChange);
+        return () => window.removeEventListener('hashchange', handleHashChange);
+    }, []);
+
+    const navigateToPlanning = useCallback(() => {
+        setActiveAppModule('planning');
+        if (typeof window !== 'undefined') {
+            window.location.hash = 'planning';
+        }
+    }, []);
+
+    const navigateToDashboard = useCallback(() => {
+        setActiveAppModule('dashboard');
+        if (typeof window !== 'undefined') {
+            window.location.hash = '';
+        }
+    }, []);
 
     const [startDate, setStartDate] = useState<Date>(today);
     const [endDate, setEndDate] = useState<Date>(tomorrow);
@@ -1905,16 +1940,67 @@ const App: React.FC<{ user: User }> = ({ user }) => {
     const concourseHeaderTop = poolTop + flightPoolStickySectionHeight; // For Concourse headers
 
 
+    if (activeAppModule === 'dashboard') {
+        return (
+            <DashboardPortal
+                onSelectGAMS={navigateToPlanning}
+                flightsCount={flights.length}
+                user={user}
+                onQuickUploadExcel={(e) => {
+                    onFileUpload(e);
+                    navigateToPlanning();
+                }}
+            />
+        );
+    }
+
     return (
         <div className="bg-gray-900 text-white h-screen flex flex-col overflow-hidden" onContextMenu={(e) => e.preventDefault()}>
             <header className="flex flex-col px-3 py-2 bg-[#1a1f2c] border-b border-gray-750 shadow-xl flex-shrink-0 z-40 gap-y-2 text-xs">
                 {/* Top Row: Brand, Financial KPIs, Operational Groups, Super Set, Export & Quick Actions */}
                 <div className="flex items-center justify-between w-full">
-                    <div className="flex items-center gap-x-3">
+                    <div className="flex items-center gap-x-2.5">
+                        {/* Dashboard / Modüller Dönüş Butonu */}
+                        <button
+                            onClick={navigateToDashboard}
+                            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-200 hover:text-white border border-gray-700/80 shadow-sm transition font-semibold text-xs select-none cursor-pointer"
+                            title="Ana Dashboard / Modül Seçimine Dön"
+                        >
+                            <svg className="w-3.5 h-3.5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+                            </svg>
+                            <span>Dashboard</span>
+                        </button>
+
                         {/* GAMS Brand Badge */}
                         <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-gradient-to-r from-blue-950/90 to-indigo-950/90 border border-blue-500/30 shadow-sm">
                             <span className="text-sm font-black tracking-wider text-white">GAMS</span>
                             <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 uppercase tracking-wider">AOS</span>
+                        </div>
+
+                        {/* Modül Kısayolları (xPBB & KOI) */}
+                        <div className="hidden xl:flex items-center gap-1 bg-gray-800/60 p-0.5 rounded-lg border border-gray-750">
+                            <a
+                                href="https://xpbb-web.vercel.app/"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium text-purple-300 hover:text-white hover:bg-purple-900/40 transition"
+                                title="xPBB™ Optimizasyon Portalına Git (Yeni Sekme)"
+                            >
+                                <span>xPBB</span>
+                                <span className="text-[9px] opacity-70">↗</span>
+                            </a>
+                            <span className="text-gray-600 text-[10px]">|</span>
+                            <a
+                                href="https://koi-hesaplama.vercel.app/"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium text-emerald-300 hover:text-white hover:bg-emerald-900/40 transition"
+                                title="KOI Ücret Hesaplama Portalına Git (Yeni Sekme)"
+                            >
+                                <span>KOI</span>
+                                <span className="text-[9px] opacity-70">↗</span>
+                            </a>
                         </div>
 
                         {/* Financial Revenue Summary */}
@@ -1926,6 +2012,22 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                                 <span className="text-indigo-300 font-bold">🌉 Köprü Oranı:</span>
                                 <span className="text-emerald-300 font-black text-sm">%{bridgeStats.bridgeRate.toFixed(1)}</span>
                                 <span className="text-gray-400 text-[10px]">({bridgeStats.bridgeAssignedCount}/{bridgeStats.eligibleFlightsCount} Yolcu)</span>
+                            </div>
+                        )}
+
+                        {/* xPBB (Expected PBB) & ΔPBB Badge */}
+                        {flights.length > 0 && bridgeStats && (
+                            <div className="bg-gradient-to-r from-slate-900 to-indigo-950 border border-purple-500/40 rounded-lg px-2.5 py-1 flex items-center space-x-2 shadow select-none"
+                                 title={`xPBB™ (Expected PBB): Ortalama ${bridgeStats.avgGroundTimeMins} dk yer süresi ve %${bridgeStats.widebodyRatio.toFixed(1)} geniş gövde baskısına göre matematiksel köprü beklentisi %${bridgeStats.xPbbRate.toFixed(1)} idi. ΔPBB = %${bridgeStats.deltaPbb >= 0 ? '+' : ''}${bridgeStats.deltaPbb.toFixed(1)} Ramp Kontrol Katma Değeri.`}>
+                                <span className="text-purple-300 font-bold text-xs flex items-center gap-1">
+                                    🎯 xPBB:
+                                </span>
+                                <span className="text-purple-200 font-mono font-bold text-sm">
+                                    %{bridgeStats.xPbbRate.toFixed(1)}
+                                </span>
+                                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${bridgeStats.deltaPbb >= 0 ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'}`}>
+                                    Δ {bridgeStats.deltaPbb >= 0 ? '+' : ''}{bridgeStats.deltaPbb.toFixed(1)}% {bridgeStats.deltaPbb > 0 ? '🏆' : ''}
+                                </span>
                             </div>
                         )}
 
