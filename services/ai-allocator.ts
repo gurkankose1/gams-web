@@ -2404,6 +2404,320 @@ export function runPreserveAndElevateAllocation(
 }
 
 // ---------------------------------------------------------------------------
+// 5b. Chain-Swap Pass (0-Buffer Maximum Capacity Relocation Shuffle)
+// ---------------------------------------------------------------------------
+function canFitIgnoringIds(
+    topology: Map<string, StandSchedule>,
+    stand: string,
+    f: Flight,
+    ignoreIds: Set<string>,
+    maintenanceBlocks?: MaintenanceBlock[]
+): boolean {
+    const sched = topology.get(stand);
+    if (!sched || !isContactStand(stand)) return false;
+
+    const cat = f.acCategory || getAircraftCategory(f.aircraftType || '');
+    const isWide = cat === 'D' || cat === 'E' || cat === 'F';
+    const isHeavy = cat === 'F';
+    const allowed = getAllowedBridgeConcourses(f);
+    if (!allowed.some(c => sched.concourse.toUpperCase().includes(c.toUpperCase()))) return false;
+
+    if (isWide && sched.isMarsSub) return false;
+    if (isWide && !sched.isWideCompatible) return false;
+    if (!isWide && sched.isMarsCenter) return false;
+    if (isHeavy && !isStandCatFCompatible(stand)) return false;
+
+    if (hasMaintenanceConflict(stand, f.scheduledArrival, f.scheduledDeparture, maintenanceBlocks)) {
+        return false;
+    }
+
+    const arrMs = f.scheduledArrival.getTime();
+    const depMs = f.scheduledDeparture.getTime();
+
+    const checkIntervals = (ivs: StandSchedule['intervals']) => {
+        for (const iv of ivs) {
+            if (ignoreIds.has(iv.flightId)) continue;
+            if (arrMs < iv.end && depMs > iv.start) return false;
+        }
+        return true;
+    };
+
+    if (!checkIntervals(sched.intervals)) return false;
+    if (sched.isMarsSub && sched.marsCenterStand) {
+        const c = topology.get(sched.marsCenterStand);
+        if (c && !checkIntervals(c.intervals)) return false;
+    } else if (sched.isMarsCenter && sched.marsSubStands) {
+        for (const sub of sched.marsSubStands) {
+            const s = topology.get(sub);
+            if (s && !checkIntervals(s.intervals)) return false;
+        }
+    }
+    return true;
+}
+
+export function runChainSwapPass(
+    result: AiAllocationResult,
+    startDate?: Date,
+    endDate?: Date,
+    maintenanceBlocks?: MaintenanceBlock[],
+    options?: AiAllocationOptions
+): AiAllocationResult {
+    const working: Flight[] = result.flights.map(f => ({ ...f }));
+    const topology = buildStandTopology(maintenanceBlocks);
+
+    for (const f of working) {
+        if (f.parkingPosition && isContactStand(f.parkingPosition)) {
+            const sched = topology.get(f.parkingPosition);
+            if (sched) {
+                placeOnStand(sched, f.scheduledArrival.getTime(), f.scheduledDeparture.getTime(), f.id);
+            }
+        }
+    }
+
+    const flightById = new Map(working.map(f => [f.id, f]));
+    let totalAdded = 0;
+    const addedSwaps: SwapDetail[] = [];
+    const MAX_PASSES = 4;
+    const MAX_BLOCKERS = 3;
+
+    for (let pass = 0; pass < MAX_PASSES; pass++) {
+        let addedInPass = 0;
+
+        const unplaced = working.filter(f => {
+            if (f.parkingPosition && isContactStand(f.parkingPosition)) return false;
+            if (!isFlightBridgeEligible(f)) return false;
+            if (isOperationalLockedFlight(f)) return false;
+            if (options && isFlightLockedByFidsOrTime(f, options).isLocked) return false;
+            return true;
+        });
+
+        // Shortest ground time first to maximize total bridge count
+        unplaced.sort((a, b) =>
+            (a.scheduledDeparture.getTime() - a.scheduledArrival.getTime()) -
+            (b.scheduledDeparture.getTime() - b.scheduledArrival.getTime())
+        );
+
+        for (const r of unplaced) {
+            const rArr = r.scheduledArrival.getTime();
+            const rDep = r.scheduledDeparture.getTime();
+            const rCat = r.acCategory || getAircraftCategory(r.aircraftType || '');
+            const rWide = rCat === 'D' || rCat === 'E' || rCat === 'F';
+            const rHeavy = rCat === 'F';
+            const rAllowed = getAllowedBridgeConcourses(r);
+
+            for (const [stand, sched] of topology.entries()) {
+                if (!isContactStand(stand)) continue;
+                if (!rAllowed.some(c => sched.concourse.toUpperCase().includes(c.toUpperCase()))) continue;
+                if (rWide && sched.isMarsSub) continue;
+                if (rWide && !sched.isWideCompatible) continue;
+                if (!rWide && sched.isMarsCenter) continue;
+                if (rHeavy && !isStandCatFCompatible(stand)) continue;
+                if (hasMaintenanceConflict(stand, r.scheduledArrival, r.scheduledDeparture, maintenanceBlocks)) continue;
+
+                const blockers = new Set<string>();
+                const collect = (ivs: StandSchedule['intervals']) => {
+                    for (const iv of ivs) {
+                        if (rArr < iv.end && rDep > iv.start) {
+                            blockers.add(iv.flightId);
+                        }
+                    }
+                };
+                collect(sched.intervals);
+                if (sched.isMarsSub && sched.marsCenterStand) {
+                    const c = topology.get(sched.marsCenterStand);
+                    if (c) collect(c.intervals);
+                } else if (sched.isMarsCenter && sched.marsSubStands) {
+                    for (const sub of sched.marsSubStands) {
+                        const s = topology.get(sub);
+                        if (s) collect(s.intervals);
+                    }
+                }
+
+                if (blockers.size > MAX_BLOCKERS) continue;
+
+                if (blockers.size === 0) {
+                    r.parkingPosition = stand;
+                    r.gate = stand;
+                    placeOnStand(sched, rArr, rDep, r.id);
+                    addedInPass++;
+                    totalAdded++;
+                    break;
+                }
+
+                const blockerFlights: Flight[] = [];
+                let allMovable = true;
+                for (const bid of blockers) {
+                    const bf = flightById.get(bid);
+                    if (!bf || isOperationalLockedFlight(bf) || (options && isFlightLockedByFidsOrTime(bf, options).isLocked)) {
+                        allMovable = false;
+                        break;
+                    }
+                    blockerFlights.push(bf);
+                }
+                if (!allMovable) continue;
+
+                const moves: { bf: Flight; altStand: string }[] = [];
+                const tempIgnore = new Set<string>(blockers);
+                let ok = true;
+
+                for (const bf of blockerFlights) {
+                    let altStand: string | null = null;
+                    for (const [s2] of topology.entries()) {
+                        if (s2 === stand) continue;
+                        if (sched.marsCenterStand === s2 || (sched.marsSubStands && sched.marsSubStands.includes(s2))) continue;
+                        if (canFitIgnoringIds(topology, s2, bf, tempIgnore, maintenanceBlocks)) {
+                            altStand = s2;
+                            break;
+                        }
+                    }
+                    if (!altStand) {
+                        ok = false;
+                        break;
+                    }
+                    moves.push({ bf, altStand });
+                    const altSched = topology.get(altStand)!;
+                    placeOnStand(altSched, bf.scheduledArrival.getTime(), bf.scheduledDeparture.getTime(), bf.id);
+                }
+
+                if (!ok) {
+                    for (const m of moves) {
+                        const s = topology.get(m.altStand);
+                        if (s) s.intervals = s.intervals.filter(iv => iv.flightId !== m.bf.id);
+                    }
+
+                    // 1-engelleyici 1-hop'a sığmadıysa ve aday uçuş <= 4.5 saat ise 2-Hop dene: r -> stand (bf1 -> s2) -> s2 (bf2 -> s3)
+                    const rDurH = (rDep - rArr) / 3600000;
+                    if (blockerFlights.length === 1 && rDurH <= 4.5 && pass === 0) {
+                        const bf1 = blockerFlights[0];
+                        const bf1Cat = bf1.acCategory || getAircraftCategory(bf1.aircraftType || '');
+                        const bf1Wide = bf1Cat === 'D' || bf1Cat === 'E' || bf1Cat === 'F';
+                        const bf1Heavy = bf1Cat === 'F';
+                        const bf1Allowed = getAllowedBridgeConcourses(bf1);
+
+                        let twoHopCommitted = false;
+                        for (const [s2, sched2] of topology.entries()) {
+                            if (s2 === stand || !isContactStand(s2)) continue;
+                            if (sched.marsCenterStand === s2 || (sched.marsSubStands && sched.marsSubStands.includes(s2))) continue;
+                            if (!bf1Allowed.some(c => sched2.concourse.toUpperCase().includes(c.toUpperCase()))) continue;
+                            if (bf1Wide && sched2.isMarsSub) continue;
+                            if (bf1Wide && !sched2.isWideCompatible) continue;
+                            if (!bf1Wide && sched2.isMarsCenter) continue;
+                            if (bf1Heavy && !isStandCatFCompatible(s2)) continue;
+                            if (hasMaintenanceConflict(s2, bf1.scheduledArrival, bf1.scheduledDeparture, maintenanceBlocks)) continue;
+
+                            const bf1Arr = bf1.scheduledArrival.getTime();
+                            const bf1Dep = bf1.scheduledDeparture.getTime();
+                            const b2Set = new Set<string>();
+                            const collectB2 = (ivs: StandSchedule['intervals']) => {
+                                for (const iv of ivs) {
+                                    if (iv.flightId !== bf1.id && bf1Arr < iv.end && bf1Dep > iv.start) b2Set.add(iv.flightId);
+                                }
+                            };
+                            collectB2(sched2.intervals);
+                            if (sched2.isMarsSub && sched2.marsCenterStand) {
+                                const c2 = topology.get(sched2.marsCenterStand);
+                                if (c2) collectB2(c2.intervals);
+                            } else if (sched2.isMarsCenter && sched2.marsSubStands) {
+                                for (const sub2 of sched2.marsSubStands) {
+                                    const sb2 = topology.get(sub2);
+                                    if (sb2) collectB2(sb2.intervals);
+                                }
+                            }
+                            if (b2Set.size !== 1) continue;
+                            const bf2 = flightById.get([...b2Set][0]);
+                            if (!bf2 || isOperationalLockedFlight(bf2) || (options && isFlightLockedByFidsOrTime(bf2, options).isLocked)) continue;
+
+                            const ign2 = new Set<string>([bf1.id, bf2.id]);
+                            for (const [s3] of topology.entries()) {
+                                if (s3 === s2 || s3 === stand) continue;
+                                if (sched2.marsCenterStand === s3 || (sched2.marsSubStands && sched2.marsSubStands.includes(s3))) continue;
+                                if (sched.marsCenterStand === s3 || (sched.marsSubStands && sched.marsSubStands.includes(s3))) continue;
+                                if (canFitIgnoringIds(topology, s3, bf2, ign2, maintenanceBlocks)) {
+                                    const old1 = topology.get(bf1.parkingPosition!);
+                                    if (old1) old1.intervals = old1.intervals.filter(iv => iv.flightId !== bf1.id);
+                                    const old2 = topology.get(bf2.parkingPosition!);
+                                    if (old2) old2.intervals = old2.intervals.filter(iv => iv.flightId !== bf2.id);
+
+                                    bf2.parkingPosition = s3;
+                                    bf2.gate = s3;
+                                    placeOnStand(topology.get(s3)!, bf2.scheduledArrival.getTime(), bf2.scheduledDeparture.getTime(), bf2.id);
+
+                                    bf1.parkingPosition = s2;
+                                    bf1.gate = s2;
+                                    placeOnStand(sched2, bf1Arr, bf1Dep, bf1.id);
+
+                                    r.parkingPosition = stand;
+                                    r.gate = stand;
+                                    placeOnStand(sched, rArr, rDep, r.id);
+                                    addedInPass++;
+                                    totalAdded++;
+                                    twoHopCommitted = true;
+                                    break;
+                                }
+                            }
+                            if (twoHopCommitted) break;
+                        }
+                        if (twoHopCommitted) break;
+                    }
+                    continue;
+                }
+
+                // Commit chain relocation
+                for (const { bf, altStand } of moves) {
+                    const oldStand = bf.parkingPosition!;
+                    const oldSched = topology.get(oldStand);
+                    if (oldSched) oldSched.intervals = oldSched.intervals.filter(iv => iv.flightId !== bf.id);
+                    bf.parkingPosition = altStand;
+                    bf.gate = altStand;
+                }
+
+                r.parkingPosition = stand;
+                r.gate = stand;
+                placeOnStand(sched, rArr, rDep, r.id);
+                addedInPass++;
+                totalAdded++;
+
+                const rCallsign = r.departureFlightNumber || r.arrivalFlightNumber || r.id;
+                addedSwaps.push({
+                    stand,
+                    concourse: sched.concourse,
+                    removedFlight: {
+                        id: blockerFlights[0].id,
+                        callsign: blockerFlights[0].departureFlightNumber || blockerFlights[0].arrivalFlightNumber || blockerFlights[0].id,
+                        acType: blockerFlights[0].aircraftType || '',
+                        durationHours: Math.round((blockerFlights[0].scheduledDeparture.getTime() - blockerFlights[0].scheduledArrival.getTime()) / 3600000)
+                    },
+                    sentToRemote: moves[0]?.altStand || stand,
+                    gainedFlights: [{
+                        id: r.id,
+                        callsign: rCallsign,
+                        acType: r.aircraftType || '',
+                        stand
+                    }],
+                    netGain: 1,
+                    swapType: 'CAPACITY_SWAP'
+                });
+                break;
+            }
+        }
+
+        if (addedInPass === 0) break;
+    }
+
+    if (totalAdded === 0) return result;
+
+    const stats = calculateBridgeUtilization(working, startDate, endDate);
+    return {
+        ...result,
+        flights: working,
+        stats,
+        swapDetails: [...result.swapDetails, ...addedSwaps],
+        totalSwapsPerformed: result.totalSwapsPerformed + totalAdded,
+        netFlightsGained: result.netFlightsGained + totalAdded
+    };
+}
+
+// ---------------------------------------------------------------------------
 // 6. Master AI Bridge Allocation Entry Point
 // ---------------------------------------------------------------------------
 export function runAiBridgeAllocation(
@@ -2413,17 +2727,42 @@ export function runAiBridgeAllocation(
     maintenanceBlocks?: MaintenanceBlock[],
     options?: AiAllocationOptions
 ): AiAllocationResult {
-    const existingContactCount = allFlights.filter(f => f.parkingPosition && isContactStand(f.parkingPosition)).length;
-
-    // If flights already have contact stand assignments from human dispatcher, run Warm-Start Optimization
-    let elevateResult: AiAllocationResult | null = null;
-    if (existingContactCount > 0) {
-        elevateResult = runPreserveAndElevateAllocation(allFlights, startDate, endDate, maintenanceBlocks, options);
+    // -----------------------------------------------------------------------
+    // TARİH İZOLASYONU: Seçili tarih aralığı (±12 saat) dışındaki günler korunur
+    // -----------------------------------------------------------------------
+    let scopedFlights = allFlights;
+    let outsideFlights: Flight[] = [];
+    if (startDate && endDate) {
+        const winStart = startDate.getTime() - 12 * 3600000;
+        const winEnd = endDate.getTime() + 12 * 3600000;
+        scopedFlights = [];
+        for (const f of allFlights) {
+            const depMs = f.scheduledDeparture ? f.scheduledDeparture.getTime() : 0;
+            const arrMs = f.scheduledArrival ? f.scheduledArrival.getTime() : depMs;
+            if ((depMs >= winStart && depMs <= winEnd) || (arrMs >= winStart && arrMs <= winEnd)) {
+                scopedFlights.push(f);
+            } else {
+                outsideFlights.push({ ...f });
+            }
+        }
     }
 
-    const scratchResult = runFromScratchAllocation(allFlights, startDate, endDate, maintenanceBlocks, options);
+    const existingContactCount = scopedFlights.filter(f => f.parkingPosition && isContactStand(f.parkingPosition)).length;
 
-    // If elevateResult exists and achieved >= bridge assigned count, prefer it!
+    // -----------------------------------------------------------------------
+    // ÖNCELİK 1: MAKSİMUM UÇAK PLANLAMASI (0 dk tampon + Chain-Swap, Sıfır Tow)
+    // -----------------------------------------------------------------------
+    let elevateResult: AiAllocationResult | null = null;
+    if (existingContactCount > 0) {
+        elevateResult = runPreserveAndElevateAllocation(scopedFlights, startDate, endDate, maintenanceBlocks, options);
+        if (elevateResult) {
+            elevateResult = runChainSwapPass(elevateResult, startDate, endDate, maintenanceBlocks, options);
+        }
+    }
+
+    let scratchResult = runFromScratchAllocation(scopedFlights, startDate, endDate, maintenanceBlocks, options);
+    scratchResult = runChainSwapPass(scratchResult, startDate, endDate, maintenanceBlocks, options);
+
     let phase1Result: AiAllocationResult;
     if (elevateResult && elevateResult.stats.bridgeAssignedCount >= scratchResult.stats.bridgeAssignedCount) {
         phase1Result = elevateResult;
@@ -2432,8 +2771,7 @@ export function runAiBridgeAllocation(
     }
 
     // -----------------------------------------------------------------------
-    // FAZ 2: KÖPRÜ KULLANIM ORANINI KORUYARAK GELİR MAKSİMİZASYON TAKASI
-    // (OCC Revenue Swap Engine)
+    // ÖNCELİK 2: KÖPRÜ ORANI KORUNARAK MAKSİMUM GELİR TAKASI (Revenue Swap)
     // -----------------------------------------------------------------------
     const revenueEnhancedResult = runRevenueMaximizationSwapPass(
         phase1Result,
@@ -2443,7 +2781,39 @@ export function runAiBridgeAllocation(
         options
     );
 
-    return revenueEnhancedResult;
+    // -----------------------------------------------------------------------
+    // ÖNCELİK 3: EN GENİŞ ARALIKLAR / KUSURSUZ DİZİLİM (Buffer Smoothing)
+    // -----------------------------------------------------------------------
+    const smoothTopology = buildStandTopology(maintenanceBlocks);
+    const smoothUpdates = new Map<string, string | null>();
+    for (const f of revenueEnhancedResult.flights) {
+        smoothUpdates.set(f.id, f.parkingPosition || null);
+        if (f.parkingPosition && isContactStand(f.parkingPosition)) {
+            const sched = smoothTopology.get(f.parkingPosition);
+            if (sched) placeOnStand(sched, f.scheduledArrival.getTime(), f.scheduledDeparture.getTime(), f.id);
+        }
+    }
+    const postRevSmoothed = runBufferSmoothingPass(revenueEnhancedResult.flights, smoothUpdates, smoothTopology, maintenanceBlocks);
+    const smoothedScopedFlights = revenueEnhancedResult.flights.map(f => {
+        const newPos = smoothUpdates.get(f.id);
+        if (newPos && newPos !== f.parkingPosition) {
+            return { ...f, parkingPosition: newPos, gate: isContactStand(newPos) ? newPos : f.gate };
+        }
+        return f;
+    });
+
+    // Dışarıdaki günlerin uçuşlarını birleştir
+    const combinedFlights = outsideFlights.length > 0
+        ? [...outsideFlights, ...smoothedScopedFlights]
+        : smoothedScopedFlights;
+    const finalStats = calculateBridgeUtilization(combinedFlights, startDate, endDate);
+
+    return {
+        ...revenueEnhancedResult,
+        flights: combinedFlights,
+        stats: finalStats,
+        bufferSmoothedCount: (revenueEnhancedResult.bufferSmoothedCount || 0) + postRevSmoothed
+    };
 }
 
 /**
@@ -2473,24 +2843,25 @@ export function runRevenueMaximizationSwapPass(
     const addedSwapDetails: SwapDetail[] = [];
     let performedRevenueSwaps = 0;
 
-    // İteratif tarama (En fazla 6 iterasyon)
-    const MAX_ITERATIONS = 6;
+    // İteratif tarama (En fazla 15 tam geçiş)
+    const MAX_ITERATIONS = 15;
     for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
         let swapFoundInIter = false;
 
-        // Köprüdeki ve açıktaki uçuşları ayıkla
+        // Köprüdeki ve açıktaki uçuşları ayıkla (sadece köprüye uygun yolcu uçuşları)
         const bridgeFlights = workingFlights.filter(f => {
             if (!f.parkingPosition || !isContactStand(f.parkingPosition)) return false;
+            if (!isFlightBridgeEligible(f)) return false;
             if (isOperationalLockedFlight(f)) return false;
-            if (options && isFlightLockedByFidsOrTime(f, options)) return false;
+            if (options && isFlightLockedByFidsOrTime(f, options).isLocked) return false;
             return true;
         });
 
         const remoteFlights = workingFlights.filter(f => {
-            if (!f.parkingPosition || isContactStand(f.parkingPosition)) return false;
+            if (f.parkingPosition && isContactStand(f.parkingPosition)) return false;
             if (!isFlightBridgeEligible(f)) return false;
             if (isOperationalLockedFlight(f)) return false;
-            if (options && isFlightLockedByFidsOrTime(f, options)) return false;
+            if (options && isFlightLockedByFidsOrTime(f, options).isLocked) return false;
             return true;
         });
 
@@ -2507,35 +2878,48 @@ export function runRevenueMaximizationSwapPass(
             return (calculateRevenue(a).totalEur || 0) - (calculateRevenue(b).totalEur || 0);
         });
 
+        const startMs = startDate ? startDate.getTime() : 0;
+        const endMs = endDate ? endDate.getTime() : Infinity;
+        const isInSelectedDateWindow = (f: Flight) => {
+            const depMs = f.scheduledDeparture ? f.scheduledDeparture.getTime() : 0;
+            return depMs >= startMs && depMs <= endMs;
+        };
+
+        // Topolojiyi iterasyon başına BİR KEZ kur (100x hızlandırma)
+        const iterTopology = buildStandTopology(maintenanceBlocks);
+        for (const f of workingFlights) {
+            if (!f.parkingPosition || !isContactStand(f.parkingPosition)) continue;
+            const sched = iterTopology.get(f.parkingPosition);
+            if (sched) {
+                placeOnStand(sched, f.scheduledArrival.getTime(), f.scheduledDeparture.getTime(), f.id);
+            }
+        }
+
         // 1-to-1 ve Stand İçi Swap Arama
         for (const remoteF of remoteFlights) {
-            let remoteSwapped = false;
+            if (remoteF.parkingPosition && isContactStand(remoteF.parkingPosition)) continue;
 
             const remArr = remoteF.scheduledArrival.getTime();
             const remDep = remoteF.scheduledDeparture.getTime();
-            const remCategory = getAircraftCategory(remoteF.aircraftType || '');
-            const remIsWide = remCategory === 'D' || remCategory === 'E' || remCategory === 'F';
-            const remIsHeavy = remCategory === 'F';
             const remAllowedConcourses = getAllowedBridgeConcourses(remoteF);
+            const remInWindow = isInSelectedDateWindow(remoteF);
 
             for (const bridgeF of bridgeFlights) {
-                const bridgeStand = bridgeF.parkingPosition!;
+                // Bu iterasyonda daha önce takas edilmişse atla
+                if (!bridgeF.parkingPosition || !isContactStand(bridgeF.parkingPosition)) continue;
+
+                // Seçili tarih aralığındaki köprü sayısının düşmemesi için pencere uyumu kontrolü
+                if (isInSelectedDateWindow(bridgeF) && !remInWindow) {
+                    continue;
+                }
+
+                const bridgeStand = bridgeF.parkingPosition;
                 const bridgeConcourse = Object.keys(CONCOURSE_LAYOUT).find(c => CONCOURSE_LAYOUT[c]?.includes(bridgeStand)) || '';
 
                 // İskele izinleri uyumlu mu?
                 if (remAllowedConcourses.length > 0 && !remAllowedConcourses.some(allowed => bridgeConcourse.toUpperCase().includes(allowed.toUpperCase()))) {
                     continue;
                 }
-
-                // Zaman aralığı uyumlu mu? Açıktaki uçak köprüdeki uçağın penceresine sığıyor mu?
-                const brgArr = bridgeF.scheduledArrival.getTime();
-                const brgDep = bridgeF.scheduledDeparture.getTime();
-
-                // 25 dk minimum tampon ile pencere kontrolü
-                const BUFFER_MS = 25 * 60 * 1000;
-                const fitsInTimeWindow = remArr >= (brgArr - BUFFER_MS) && remDep <= (brgDep + BUFFER_MS);
-
-                if (!fitsInTimeWindow) continue;
 
                 // Gelir farkı kontrolü: Açıktaki uçak bu köprüde daha fazla gelir üretiyor mu?
                 const currentBrgRev = calculateRevenue(bridgeF).totalEur || 0;
@@ -2546,38 +2930,27 @@ export function runRevenueMaximizationSwapPass(
                 // En az €35 net gelir artışı şartı
                 if (revenueGain < 35) continue;
 
-                // Topoloji üzerinde çakışma ve AMS/MARS kuralları simülasyonu
-                const testTopology = buildStandTopology(maintenanceBlocks);
-                let conflict = false;
-
-                // Diğer tüm uçuşları yerleştir (bu iki uçuş hariç)
-                for (const otherF of workingFlights) {
-                    if (otherF.id === bridgeF.id || otherF.id === remoteF.id) continue;
-                    if (!otherF.parkingPosition || !isContactStand(otherF.parkingPosition)) continue;
-
-                    const sched = testTopology.get(otherF.parkingPosition);
-                    if (sched) {
-                        placeOnStand(sched, otherF.scheduledArrival.getTime(), otherF.scheduledDeparture.getTime(), otherF.id);
-                    }
-                }
-
-                // Açıktaki uçağı köprü standına koymayı dene
-                const targetSched = testTopology.get(bridgeStand);
-                if (!targetSched) continue;
-
-                const fits = canFitOnStand(targetSched, remArr, remDep, remIsWide, testTopology, remIsHeavy);
-                if (!fits) continue;
-
-                // Bakım bloğu çakışması var mı?
-                if (hasMaintenanceConflict(bridgeStand, remoteF.scheduledArrival, remoteF.scheduledDeparture, maintenanceBlocks)) {
+                // Topoloji üzerinde bridgeF hariç çakışma ve AMS/MARS kuralları kontrolü
+                const ignoreSet = new Set<string>([bridgeF.id]);
+                if (!canFitIgnoringIds(iterTopology, bridgeStand, remoteF, ignoreSet, maintenanceBlocks)) {
                     continue;
                 }
 
                 // TAKAS ONAYLANDI!
                 const oldRemoteStand = remoteF.parkingPosition || 'REMOTE';
+                const brgArr = bridgeF.scheduledArrival.getTime();
+                const brgDep = bridgeF.scheduledDeparture.getTime();
                 
-                // Köprüdeki uçağı açığa (remoteF'nin pozisyonuna veya güvenli açığa), açıktaki uçağı köprüye al
+                // Topolojiyi yerinde güncelle
+                const brgSched = iterTopology.get(bridgeStand);
+                if (brgSched) {
+                    brgSched.intervals = brgSched.intervals.filter(iv => iv.flightId !== bridgeF.id);
+                    placeOnStand(brgSched, remArr, remDep, remoteF.id);
+                }
+
+                // Köprüdeki uçağı açığa, açıktaki uçağı köprüye al
                 bridgeF.parkingPosition = oldRemoteStand;
+                bridgeF.gate = null;
                 remoteF.parkingPosition = bridgeStand;
 
                 // Gate senkronizasyonu
@@ -2587,7 +2960,6 @@ export function runRevenueMaximizationSwapPass(
 
                 performedRevenueSwaps++;
                 swapFoundInIter = true;
-                remoteSwapped = true;
 
                 const bridgeCallsign = bridgeF.departureFlightNumber || bridgeF.arrivalFlightNumber || bridgeF.id;
                 const remoteCallsign = remoteF.departureFlightNumber || remoteF.arrivalFlightNumber || remoteF.id;
@@ -2624,8 +2996,6 @@ export function runRevenueMaximizationSwapPass(
 
                 break; // bridgeFlights döngüsünden çık, bir sonraki remote'a geç
             }
-
-            if (remoteSwapped) break; // İterasyonu yeniden tara
         }
 
         if (!swapFoundInIter) {
@@ -2641,9 +3011,9 @@ export function runRevenueMaximizationSwapPass(
     const netRevenueGainEur = Math.max(0, finalRevenueEur - initialRevenueEur);
 
     // KÖPRÜ KULLANIM ORANI KONTROLÜ:
-    // Eğer köprü sayısı düştüyse (asla olmamalı ama garanti koruma), Faz 1 sonucunu aynen iade et!
-    if (finalBridgeCount < initialBridgeCount) {
-        console.warn('Revenue swap pass could not maintain bridge count! Falling back to Phase 1 allocation.');
+    // Eğer köprü sayısı veya seçili gün köprü oranı düştüyse, Faz 1 sonucunu aynen iade et!
+    if (finalBridgeCount < initialBridgeCount || finalStats.bridgeAssignedCount < phase1Result.stats.bridgeAssignedCount) {
+        console.warn('Revenue swap pass could not maintain bridge count/rate! Falling back to Phase 1 allocation.');
         return phase1Result;
     }
 
