@@ -931,16 +931,16 @@ export function runBufferSmoothingPass(
         // Tail-Swap (Arkasındakilerle Birlikte Kuyruk Takası): 1'e 1 çakışırsa arka arkaya gelen 2-4 uçağı birlikte takas et
         for (const fA of bridgeFlights) {
             const standA = flightUpdates.get(fA.id);
-            if (!standA) continue;
+            if (!standA || !isContactStand(standA)) continue;
             const schedA = topology.get(standA);
-            if (!schedA) continue;
+            if (!schedA || !schedA.intervals.some(iv => iv.flightId === fA.id)) continue;
 
             const aArr = fA.scheduledArrival.getTime();
             const aDep = fA.scheduledDeparture.getTime();
             const oldGapA = getMinNeighborGap(schedA, aArr, aDep, new Set([fA.id]));
             if (oldGapA >= CRITICAL_BUFFER_MS) continue;
 
-            // standA üzerinde fA'dan sonraki 6 saatlik kuyruğu topla
+            // standA üzerinde fA'dan sonraki 8 saatlik kuyruğu topla
             const tailA: Flight[] = schedA.intervals
                 .filter(iv => iv.start >= aArr && iv.start <= aArr + 8 * 3600000)
                 .sort((x, y) => x.start - y.start)
@@ -948,14 +948,28 @@ export function runBufferSmoothingPass(
                 .filter((x): x is Flight => !!x && !isOperationalLockedFlight(x) && !(options && isFlightLockedByFidsOrTime(x, options).isLocked));
             if (tailA.length < 2) continue;
 
+            // Kuyruk içi kendi kendine çakışma olmamalı
+            let tailASelfOk = true;
+            for (let i = 0; i < tailA.length - 1; i++) {
+                if (tailA[i].scheduledDeparture.getTime() > tailA[i + 1].scheduledArrival.getTime()) { tailASelfOk = false; break; }
+            }
+            if (!tailASelfOk) continue;
+
             for (const [standB, schedB] of topology.entries()) {
                 if (standB === standA || !isContactStand(standB)) continue;
+                if (schedA.marsCenterStand === standB || (schedA.marsSubStands && schedA.marsSubStands.includes(standB))) continue;
                 const tailB: Flight[] = schedB.intervals
                     .filter(iv => iv.start >= aArr - 2 * 3600000 && iv.start <= aArr + 8 * 3600000)
                     .sort((x, y) => x.start - y.start)
                     .map(iv => flightById.get(iv.flightId))
                     .filter((x): x is Flight => !!x && !isOperationalLockedFlight(x) && !(options && isFlightLockedByFidsOrTime(x, options).isLocked));
                 if (tailB.length === 0) continue;
+
+                let tailBSelfOk = true;
+                for (let i = 0; i < tailB.length - 1; i++) {
+                    if (tailB[i].scheduledDeparture.getTime() > tailB[i + 1].scheduledArrival.getTime()) { tailBSelfOk = false; break; }
+                }
+                if (!tailBSelfOk) continue;
 
                 // Sadece başlangıç zamanı farkı varsa anlamlı
                 const bFirstArr = tailB[0].scheduledArrival.getTime();
@@ -2200,6 +2214,7 @@ export function runPreserveAndElevateAllocation(
             }
         }
         if (!canKeep) {
+            flightUpdates.set(f.id, null);
             remoteOrUnplacedEligible.push(f);
         }
     }
@@ -2726,7 +2741,7 @@ export function runChainSwapPass(
                 if (!allMovable) continue;
 
                 const moves: { bf: Flight; altStand: string }[] = [];
-                const tempIgnore = new Set<string>(blockers);
+                const remainingBlockers = new Set<string>(blockers);
                 let ok = true;
 
                 for (const bf of blockerFlights) {
@@ -2734,7 +2749,7 @@ export function runChainSwapPass(
                     for (const [s2] of topology.entries()) {
                         if (s2 === stand) continue;
                         if (sched.marsCenterStand === s2 || (sched.marsSubStands && sched.marsSubStands.includes(s2))) continue;
-                        if (canFitIgnoringIds(topology, s2, bf, tempIgnore, maintenanceBlocks)) {
+                        if (canFitIgnoringIds(topology, s2, bf, remainingBlockers, maintenanceBlocks)) {
                             altStand = s2;
                             break;
                         }
@@ -2744,6 +2759,7 @@ export function runChainSwapPass(
                         break;
                     }
                     moves.push({ bf, altStand });
+                    remainingBlockers.delete(bf.id);
                     const altSched = topology.get(altStand)!;
                     placeOnStand(altSched, bf.scheduledArrival.getTime(), bf.scheduledDeparture.getTime(), bf.id);
                 }

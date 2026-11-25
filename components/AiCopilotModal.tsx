@@ -13,6 +13,8 @@ interface AiCopilotModalProps {
     onClose: () => void;
     flights: Flight[];
     maintenanceBlocks?: MaintenanceBlock[];
+    startDate?: Date;
+    endDate?: Date;
     onApplyUpdates: (updatedFlights: Flight[], message: string) => void;
 }
 
@@ -21,6 +23,8 @@ export const AiCopilotModal: React.FC<AiCopilotModalProps> = ({
     onClose,
     flights,
     maintenanceBlocks,
+    startDate,
+    endDate,
     onApplyUpdates,
 }) => {
     const [selectedTab, setSelectedTab] = useState<'ALL' | 'DOMESTIC' | 'GAP' | 'CONSOLIDATION' | 'WIDEBODY' | 'DIAGNOSTIC'>('ALL');
@@ -56,8 +60,17 @@ export const AiCopilotModal: React.FC<AiCopilotModalProps> = ({
                 }
             };
         }
-        return runAiCopilotAnalysis(flights, maintenanceBlocks);
-    }, [flights, maintenanceBlocks, isOpen]);
+        const scopedFlights = (startDate && endDate)
+            ? flights.filter(f => {
+                const winStart = startDate.getTime() - 12 * 3600000;
+                const winEnd = endDate.getTime() + 12 * 3600000;
+                const depMs = f.scheduledDeparture ? f.scheduledDeparture.getTime() : 0;
+                const arrMs = f.scheduledArrival ? f.scheduledArrival.getTime() : depMs;
+                return (depMs >= winStart && depMs <= winEnd) || (arrMs >= winStart && arrMs <= winEnd);
+            })
+            : flights;
+        return runAiCopilotAnalysis(scopedFlights, maintenanceBlocks);
+    }, [flights, maintenanceBlocks, startDate, endDate, isOpen]);
 
     if (!isOpen) return null;
 

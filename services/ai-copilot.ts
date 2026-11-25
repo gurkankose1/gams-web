@@ -630,25 +630,61 @@ export function applyCopilotOpportunity(flights: Flight[], opp: CopilotOpportuni
 }
 
 /**
- * Apply all detected Co-Pilot opportunities in one atomic click.
+ * Apply all detected Co-Pilot opportunities sequentially with live collision/MARS validation.
  */
-export function applyAllCopilotOpportunities(flights: Flight[], opportunities: CopilotOpportunity[]): Flight[] {
-    const flightUpdates = new Map<string, string>();
+export function applyAllCopilotOpportunities(flights: Flight[], opportunities: CopilotOpportunity[], maintenanceBlocks?: MaintenanceBlock[]): Flight[] {
+    const flightMap = new Map(flights.map(f => [f.id, { ...f }]));
+    const topology = buildStandTopology(maintenanceBlocks);
 
-    opportunities.forEach(opp => {
-        flightUpdates.set(opp.flightId, opp.targetPosition);
+    for (const f of flightMap.values()) {
+        if (f.parkingPosition && isContactStand(f.parkingPosition)) {
+            const sched = topology.get(f.parkingPosition);
+            if (sched) placeOnStand(sched, f.scheduledArrival.getTime(), f.scheduledDeparture.getTime(), f.id);
+        }
+    }
+
+    for (const opp of opportunities) {
+        const targetF = flightMap.get(opp.flightId);
+        if (!targetF) continue;
+        if (targetF.parkingPosition && isContactStand(targetF.parkingPosition)) continue;
+
+        const sched = topology.get(opp.targetPosition);
+        if (!sched) continue;
+
+        const cat = targetF.acCategory || getAircraftCategory(targetF.aircraftType || '');
+        const isWide = cat === 'D' || cat === 'E' || cat === 'F';
+        const isHeavy = cat === 'F';
+
         if (opp.relocatedFlight) {
-            flightUpdates.set(opp.relocatedFlight.flightId, opp.relocatedFlight.toPosition);
-        }
-    });
+            const relF = flightMap.get(opp.relocatedFlight.flightId);
+            if (!relF) continue;
+            const relSched = topology.get(opp.relocatedFlight.toPosition);
+            if (!relSched) continue;
+            const relCat = relF.acCategory || getAircraftCategory(relF.aircraftType || '');
+            const relWide = relCat === 'D' || relCat === 'E' || relCat === 'F';
+            const relHeavy = relCat === 'F';
+            if (!canFitOnStand(relSched, relF.scheduledArrival.getTime(), relF.scheduledDeparture.getTime(), relWide, topology, relHeavy)) continue;
 
-    return flights.map(f => {
-        if (flightUpdates.has(f.id)) {
-            return {
-                ...f,
-                parkingPosition: flightUpdates.get(f.id)!
-            };
+            const oldRelSched = relF.parkingPosition ? topology.get(relF.parkingPosition) : undefined;
+            if (oldRelSched) oldRelSched.intervals = oldRelSched.intervals.filter(iv => iv.flightId !== relF.id);
+            placeOnStand(relSched, relF.scheduledArrival.getTime(), relF.scheduledDeparture.getTime(), relF.id);
+
+            if (!canFitOnStand(sched, targetF.scheduledArrival.getTime(), targetF.scheduledDeparture.getTime(), isWide, topology, isHeavy)) {
+                relSched.intervals = relSched.intervals.filter(iv => iv.flightId !== relF.id);
+                if (oldRelSched) placeOnStand(oldRelSched, relF.scheduledArrival.getTime(), relF.scheduledDeparture.getTime(), relF.id);
+                continue;
+            }
+
+            relF.parkingPosition = opp.relocatedFlight.toPosition;
+            if (isContactStand(opp.relocatedFlight.toPosition)) relF.gate = opp.relocatedFlight.toPosition;
+        } else {
+            if (!canFitOnStand(sched, targetF.scheduledArrival.getTime(), targetF.scheduledDeparture.getTime(), isWide, topology, isHeavy)) continue;
         }
-        return f;
-    });
+
+        targetF.parkingPosition = opp.targetPosition;
+        if (isContactStand(opp.targetPosition)) targetF.gate = opp.targetPosition;
+        placeOnStand(sched, targetF.scheduledArrival.getTime(), targetF.scheduledDeparture.getTime(), targetF.id);
+    }
+
+    return Array.from(flightMap.values());
 }

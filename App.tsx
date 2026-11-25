@@ -1091,15 +1091,20 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                             const relHeavy = relCat === 'F';
                             if (!canFitOnStand(relSched, relF.scheduledArrival.getTime(), relF.scheduledDeparture.getTime(), relWide, cpTopology, relHeavy)) continue;
 
-                            const oldRelSched = relF.parkingPosition ? cpTopology.get(relF.parkingPosition) : undefined;
+                            const oldRelPos = relF.parkingPosition;
+                            const oldRelSched = oldRelPos ? cpTopology.get(oldRelPos) : undefined;
                             if (oldRelSched) oldRelSched.intervals = oldRelSched.intervals.filter(iv => iv.flightId !== relF.id);
-                            relF.parkingPosition = opp.relocatedFlight.toPosition;
-                            if (isContactStand(opp.relocatedFlight.toPosition)) relF.gate = opp.relocatedFlight.toPosition;
                             placeOnStand(relSched, relF.scheduledArrival.getTime(), relF.scheduledDeparture.getTime(), relF.id);
 
                             if (!canFitOnStand(sched, targetF.scheduledArrival.getTime(), targetF.scheduledDeparture.getTime(), isWide, cpTopology, isHeavy)) {
+                                // Rollback relF placement
+                                relSched.intervals = relSched.intervals.filter(iv => iv.flightId !== relF.id);
+                                if (oldRelSched) placeOnStand(oldRelSched, relF.scheduledArrival.getTime(), relF.scheduledDeparture.getTime(), relF.id);
                                 continue;
                             }
+
+                            relF.parkingPosition = opp.relocatedFlight.toPosition;
+                            if (isContactStand(opp.relocatedFlight.toPosition)) relF.gate = opp.relocatedFlight.toPosition;
                         } else {
                             if (!canFitOnStand(sched, targetF.scheduledArrival.getTime(), targetF.scheduledDeparture.getTime(), isWide, cpTopology, isHeavy)) continue;
                         }
@@ -2526,7 +2531,7 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                     />
                 </ErrorBoundary>
             )}
-            <AiCopilotModal isOpen={isCopilotOpen} onClose={() => setIsCopilotOpen(false)} flights={flights} maintenanceBlocks={maintenanceBlocks} onApplyUpdates={handleCopilotUpdates} />
+            <AiCopilotModal isOpen={isCopilotOpen} onClose={() => setIsCopilotOpen(false)} flights={flights} maintenanceBlocks={maintenanceBlocks} startDate={startDate} endDate={endDate} onApplyUpdates={handleCopilotUpdates} />
             <DivertCapacityModal 
                 isOpen={isDivertModalOpen} 
                 onClose={() => setIsDivertModalOpen(false)} 
