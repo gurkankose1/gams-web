@@ -1046,16 +1046,18 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                 let netFlightsGained = allocResult.netFlightsGained;
                 const { swapDetails, gapFillsPerformed, bufferSmoothedCount, revenueSwapSummary, fidsWarnings, fidsLockedCount, timeFilteredFlightCount } = allocResult;
 
-                // Otomatik Co-Pilot Fırsat Taraması ve Güvenli Uygulama (Tek Butonda Birleşim)
+                // Otomatik Co-Pilot Fırsat Taraması ve Güvenli Yakınsama Döngüsü (Tek Butonda Tam Birleşim)
                 const winStart = startDate.getTime() - 12 * 3600000;
                 const winEnd = endDate.getTime() + 12 * 3600000;
-                const scopedForCopilot = newFlights.filter(f => {
-                    const depMs = f.scheduledDeparture ? f.scheduledDeparture.getTime() : 0;
-                    const arrMs = f.scheduledArrival ? f.scheduledArrival.getTime() : depMs;
-                    return (depMs >= winStart && depMs <= winEnd) || (arrMs >= winStart && arrMs <= winEnd);
-                });
-                const cpAnalysis = runAiCopilotAnalysis(scopedForCopilot, maintenanceBlocks);
-                if (cpAnalysis.opportunities.length > 0) {
+                for (let cpPass = 0; cpPass < 2; cpPass++) {
+                    const scopedForCopilot = newFlights.filter(f => {
+                        const depMs = f.scheduledDeparture ? f.scheduledDeparture.getTime() : 0;
+                        const arrMs = f.scheduledArrival ? f.scheduledArrival.getTime() : depMs;
+                        return (depMs >= winStart && depMs <= winEnd) || (arrMs >= winStart && arrMs <= winEnd);
+                    });
+                    const cpAnalysis = runAiCopilotAnalysis(scopedForCopilot, maintenanceBlocks);
+                    if (cpAnalysis.opportunities.length === 0) break;
+
                     const cpTopology = buildStandTopology(maintenanceBlocks);
                     const flightMap = new Map(newFlights.map(f => [f.id, { ...f }]));
                     for (const f of flightMap.values()) {
@@ -1097,7 +1099,6 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                             placeOnStand(relSched, relF.scheduledArrival.getTime(), relF.scheduledDeparture.getTime(), relF.id);
 
                             if (!canFitOnStand(sched, targetF.scheduledArrival.getTime(), targetF.scheduledDeparture.getTime(), isWide, cpTopology, isHeavy)) {
-                                // Rollback relF placement
                                 relSched.intervals = relSched.intervals.filter(iv => iv.flightId !== relF.id);
                                 if (oldRelSched) placeOnStand(oldRelSched, relF.scheduledArrival.getTime(), relF.scheduledDeparture.getTime(), relF.id);
                                 continue;
@@ -1116,10 +1117,9 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                     }
 
                     if (cpApplied > 0) {
-                        // Co-Pilot sonrası yeni gelen uçuşlar dahil tüm aralıkları tekrar dengele (1-to-1 + Tail Buffer Swap)
                         const cpUpdates = new Map<string, string | null>();
                         for (const f of flightMap.values()) cpUpdates.set(f.id, f.parkingPosition || null);
-                        runBufferSmoothingPass(Array.from(flightMap.values()), cpUpdates, cpTopology, maintenanceBlocks, options);
+                        runBufferSmoothingPass(Array.from(flightMap.values()), cpUpdates, cpTopology, maintenanceBlocks, options, false);
                         const candidateFlights = Array.from(flightMap.values()).map(f => {
                             const np = cpUpdates.get(f.id);
                             return (np && np !== f.parkingPosition)
@@ -1133,6 +1133,8 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                             totalSwapsPerformed += cpApplied;
                             netFlightsGained += cpApplied;
                         }
+                    } else {
+                        break;
                     }
                 }
 

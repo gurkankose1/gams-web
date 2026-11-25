@@ -696,7 +696,8 @@ export function runBufferSmoothingPass(
     flightUpdates: Map<string, string | null>,
     topology: Map<string, StandSchedule>,
     maintenanceBlocks?: MaintenanceBlock[],
-    options?: AiAllocationOptions
+    options?: AiAllocationOptions,
+    enablePairwiseSwaps: boolean = false
 ): number {
     let smoothedCount = 0;
     const CRITICAL_BUFFER_MS = 75 * 60 * 1000; // 75 dk altı tamponlar (rahatlatılabilir alanlar)
@@ -831,6 +832,10 @@ export function runBufferSmoothingPass(
         if (!movedInPass) break;
     }
 
+    if (!enablePairwiseSwaps) {
+        return smoothedCount;
+    }
+
     // 2. AŞAMA: KÖPRÜDEN KÖPRÜYE İKİLİ (1-to-1) VE KUYRUK (TAIL) TAMPON TAKASI
     // Oranı ve geliri hiç değiştirmeden, dar aralıklı (ör. G7L TK1272) bir uçağı/kuyruğu
     // daha geniş başlangıç boşluğu olan başka bir köprüdeki (ör. G6L TK2643) ile takas eder.
@@ -857,7 +862,7 @@ export function runBufferSmoothingPass(
         return minG;
     };
 
-    for (let swapPass = 0; swapPass < 3; swapPass++) {
+    for (let swapPass = 0; swapPass < 2; swapPass++) {
         let swappedInPass = false;
 
         const bridgeFlights = allFlights.filter(f => {
@@ -1971,9 +1976,41 @@ export function runFromScratchAllocation(
     }
 
     // -----------------------------------------------------------------------
+    // Pass G.5: Open Apron Fallback — Köprüye yerleşemeyen veya çakışma nedeniyle
+    // boşa düşen tüm uygun yolcu uçuşlarını açık apronlara (100/200/300) yerleştir.
+    // Böylece "Atama Bekleyen Havuzu"nda geçerli uçak kalmaz.
+    // -----------------------------------------------------------------------
+    const openApronsFallback = ['APRON 1', 'APRON 2', 'APRON 3', 'APRON 4', 'APRON 5', 'APRON 6', 'APRON 7'];
+    const unassignedEligible = eligibleFlights.filter(f => {
+        const curPos = flightUpdates.get(f.id);
+        return !curPos || curPos === 'REMOTE';
+    });
+    unassignedEligible.sort((a, b) => a.scheduledArrival.getTime() - b.scheduledArrival.getTime());
+    for (const flight of unassignedEligible) {
+        const arrMs = flight.scheduledArrival.getTime();
+        const depMs = flight.scheduledDeparture.getTime();
+        const isWide = isFlightWide(flight);
+        const isHeavy = isFlightHeavy(flight);
+        let placed = false;
+        for (const apronName of openApronsFallback) {
+            const stands = CONCOURSE_LAYOUT[apronName] || [];
+            for (const s of stands) {
+                const sched = topology.get(s);
+                if (sched && canFitOnStand(sched, arrMs, depMs, isWide, topology, isHeavy)) {
+                    placeOnStand(sched, arrMs, depMs, flight.id);
+                    flightUpdates.set(flight.id, sched.stand);
+                    placed = true;
+                    break;
+                }
+            }
+            if (placed) break;
+        }
+    }
+
+    // -----------------------------------------------------------------------
     // Pass G: Buffer Smoothing & Stand Leveling (İki Aşamalı Dayanıklı Planlama)
     // -----------------------------------------------------------------------
-    const bufferSmoothedCount = runBufferSmoothingPass(allFlights, flightUpdates, topology, maintenanceBlocks);
+    const bufferSmoothedCount = runBufferSmoothingPass(allFlights, flightUpdates, topology, maintenanceBlocks, options, false);
 
     // -----------------------------------------------------------------------
     // Result Assembly & Safety Net
@@ -2502,9 +2539,41 @@ export function runPreserveAndElevateAllocation(
     }
 
     // -----------------------------------------------------------------------
+    // Pass G.5: Open Apron Fallback — Köprüye yerleşemeyen veya çakışma nedeniyle
+    // boşa düşen tüm uygun yolcu uçuşlarını açık apronlara (100/200/300) yerleştir.
+    // Böylece "Atama Bekleyen Havuzu"nda geçerli uçak kalmaz.
+    // -----------------------------------------------------------------------
+    const openApronsFallback = ['APRON 1', 'APRON 2', 'APRON 3', 'APRON 4', 'APRON 5', 'APRON 6', 'APRON 7'];
+    const unassignedEligible = eligibleFlights.filter(f => {
+        const curPos = flightUpdates.get(f.id);
+        return !curPos || curPos === 'REMOTE';
+    });
+    unassignedEligible.sort((a, b) => a.scheduledArrival.getTime() - b.scheduledArrival.getTime());
+    for (const flight of unassignedEligible) {
+        const arrMs = flight.scheduledArrival.getTime();
+        const depMs = flight.scheduledDeparture.getTime();
+        const isWide = isFlightWide(flight);
+        const isHeavy = isFlightHeavy(flight);
+        let placed = false;
+        for (const apronName of openApronsFallback) {
+            const stands = CONCOURSE_LAYOUT[apronName] || [];
+            for (const s of stands) {
+                const sched = topology.get(s);
+                if (sched && canFitOnStand(sched, arrMs, depMs, isWide, topology, isHeavy)) {
+                    placeOnStand(sched, arrMs, depMs, flight.id);
+                    flightUpdates.set(flight.id, sched.stand);
+                    placed = true;
+                    break;
+                }
+            }
+            if (placed) break;
+        }
+    }
+
+    // -----------------------------------------------------------------------
     // Pass G: Buffer Smoothing & Stand Leveling (İki Aşamalı Dayanıklı Planlama)
     // -----------------------------------------------------------------------
-    const bufferSmoothedCount = runBufferSmoothingPass(allFlights, flightUpdates, topology, maintenanceBlocks);
+    const bufferSmoothedCount = runBufferSmoothingPass(allFlights, flightUpdates, topology, maintenanceBlocks, options, false);
 
     // Safety net and result assembly
     const updatedFlights: Flight[] = allFlights.map(f => ({
@@ -2978,7 +3047,7 @@ export function runAiBridgeAllocation(
             if (sched) placeOnStand(sched, f.scheduledArrival.getTime(), f.scheduledDeparture.getTime(), f.id);
         }
     }
-    const postRevSmoothed = runBufferSmoothingPass(revenueEnhancedResult.flights, smoothUpdates, smoothTopology, maintenanceBlocks, options);
+    const postRevSmoothed = runBufferSmoothingPass(revenueEnhancedResult.flights, smoothUpdates, smoothTopology, maintenanceBlocks, options, true);
     const smoothedScopedFlights = revenueEnhancedResult.flights.map(f => {
         const newPos = smoothUpdates.get(f.id);
         if (newPos && newPos !== f.parkingPosition) {
@@ -2986,6 +3055,40 @@ export function runAiBridgeAllocation(
         }
         return f;
     });
+
+    // Son kontrol: Revenue Swap veya çakışma temizliği sonrası 'REMOTE' veya null kalan uygun uçuşları açık apron standına yerleştir
+    const finalOpenAprons = ['APRON 1', 'APRON 2', 'APRON 3', 'APRON 4', 'APRON 5', 'APRON 6', 'APRON 7'];
+    const remoteTopo = buildStandTopology(maintenanceBlocks);
+    for (const f of smoothedScopedFlights) {
+        if (f.parkingPosition && remoteTopo.has(f.parkingPosition)) {
+            placeOnStand(remoteTopo.get(f.parkingPosition)!, f.scheduledArrival.getTime(), f.scheduledDeparture.getTime(), f.id);
+        }
+    }
+    for (const f of smoothedScopedFlights) {
+        if (isOperationalLockedFlight(f) || (options && isFlightLockedByFidsOrTime(f, options).isLocked)) continue;
+        if (!isFlightBridgeEligible(f)) continue;
+        if (f.parkingPosition && f.parkingPosition !== 'REMOTE' && remoteTopo.has(f.parkingPosition)) continue;
+        const arrMs = f.scheduledArrival.getTime();
+        const depMs = f.scheduledDeparture.getTime();
+        const cat = f.acCategory || getAircraftCategory(f.aircraftType || '');
+        const isWide = cat === 'D' || cat === 'E' || cat === 'F';
+        const isHeavy = cat === 'F';
+        for (const apronName of finalOpenAprons) {
+            const stands = CONCOURSE_LAYOUT[apronName] || [];
+            let placed = false;
+            for (const s of stands) {
+                const sched = remoteTopo.get(s);
+                if (sched && canFitOnStand(sched, arrMs, depMs, isWide, remoteTopo, isHeavy)) {
+                    placeOnStand(sched, arrMs, depMs, f.id);
+                    f.parkingPosition = sched.stand;
+                    f.gate = null;
+                    placed = true;
+                    break;
+                }
+            }
+            if (placed) break;
+        }
+    }
 
     // Dışarıdaki günlerin uçuşlarını birleştir
     const combinedFlights = outsideFlights.length > 0

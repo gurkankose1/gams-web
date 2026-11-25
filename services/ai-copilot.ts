@@ -10,6 +10,7 @@ import {
 } from './ams-rules.ts';
 import {
     isFlightBridgeEligible,
+    isOperationalLockedFlight,
     getAllowedBridgeConcourses,
     buildStandTopology,
     canFitOnStand,
@@ -143,7 +144,8 @@ export function runAiCopilotAnalysis(flights: Flight[], maintenanceBlocks?: Main
             currentBridgeCount++;
         } else {
             currentRemoteCount++;
-            if (f.parkingPosition) {
+            // Operasyonel kilitli (Tow / Bölünmüş) uçuşlara Co-Pilot da dokunamaz!
+            if (f.parkingPosition && !isOperationalLockedFlight(f)) {
                 remoteEligibleFlights.push(f);
             }
         }
@@ -316,7 +318,7 @@ export function runAiCopilotAnalysis(flights: Flight[], maintenanceBlocks?: Main
 
                 const blockingFlightId = overlappingIntervals[0].flightId;
                 const blockingFlight = flights.find(f => f.id === blockingFlightId);
-                if (!blockingFlight || isFlightWide(blockingFlight)) continue;
+                if (!blockingFlight || isFlightWide(blockingFlight) || isOperationalLockedFlight(blockingFlight)) continue;
 
                 const bArr = blockingFlight.scheduledArrival.getTime();
                 const bDep = blockingFlight.scheduledDeparture.getTime();
@@ -447,7 +449,7 @@ export function runAiCopilotAnalysis(flights: Flight[], maintenanceBlocks?: Main
 
             const blockingId = overlapping[0].flightId;
             const blockingFlight = flights.find(f => f.id === blockingId);
-            if (!blockingFlight) continue;
+            if (!blockingFlight || isOperationalLockedFlight(blockingFlight)) continue;
 
             const isBlockingDomArr = blockingFlight.arrivalIsDomestic ?? blockingFlight.isDomestic;
             const isBlockingDomDep = blockingFlight.departureIsDomestic ?? blockingFlight.isDomestic;
@@ -645,7 +647,7 @@ export function applyAllCopilotOpportunities(flights: Flight[], opportunities: C
 
     for (const opp of opportunities) {
         const targetF = flightMap.get(opp.flightId);
-        if (!targetF) continue;
+        if (!targetF || isOperationalLockedFlight(targetF)) continue;
         if (targetF.parkingPosition && isContactStand(targetF.parkingPosition)) continue;
 
         const sched = topology.get(opp.targetPosition);
