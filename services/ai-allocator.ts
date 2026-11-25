@@ -691,11 +691,12 @@ export interface AiAllocationResult {
  * 75 dakikanın altında kalan tamponları tespit eder ve boş kardeş MARS stantlarına (L/R dengelemesi)
  * veya aynı iskeledeki daha geniş tampona sahip stantlara kaydırarak yerde uçak bekleme riskini eler.
  */
-function runBufferSmoothingPass(
+export function runBufferSmoothingPass(
     allFlights: Flight[],
     flightUpdates: Map<string, string | null>,
     topology: Map<string, StandSchedule>,
-    maintenanceBlocks?: MaintenanceBlock[]
+    maintenanceBlocks?: MaintenanceBlock[],
+    options?: AiAllocationOptions
 ): number {
     let smoothedCount = 0;
     const CRITICAL_BUFFER_MS = 75 * 60 * 1000; // 75 dk altı tamponlar (rahatlatılabilir alanlar)
@@ -828,6 +829,174 @@ function runBufferSmoothingPass(
         }
 
         if (!movedInPass) break;
+    }
+
+    // 2. AŞAMA: KÖPRÜDEN KÖPRÜYE İKİLİ (1-to-1) VE KUYRUK (TAIL) TAMPON TAKASI
+    // Oranı ve geliri hiç değiştirmeden, dar aralıklı (ör. G7L TK1272) bir uçağı/kuyruğu
+    // daha geniş başlangıç boşluğu olan başka bir köprüdeki (ör. G6L TK2643) ile takas eder.
+    const flightById = new Map(allFlights.map(f => [f.id, f]));
+    const MIN_IMPROVE_MS = 15 * 60 * 1000;
+
+    const getMinNeighborGap = (sched: StandSchedule, arrMs: number, depMs: number, ignoreSet: Set<string>): number => {
+        const others = sched.intervals
+            .filter(iv => !ignoreSet.has(iv.flightId))
+            .sort((a, b) => a.start - b.start);
+        let minG = Infinity;
+        for (let i = others.length - 1; i >= 0; i--) {
+            if (others[i].end <= arrMs) {
+                minG = Math.min(minG, arrMs - others[i].end);
+                break;
+            }
+        }
+        for (let i = 0; i < others.length; i++) {
+            if (others[i].start >= depMs) {
+                minG = Math.min(minG, others[i].start - depMs);
+                break;
+            }
+        }
+        return minG;
+    };
+
+    for (let swapPass = 0; swapPass < 3; swapPass++) {
+        let swappedInPass = false;
+
+        const bridgeFlights = allFlights.filter(f => {
+            const pos = flightUpdates.get(f.id);
+            if (!pos || !isContactStand(pos)) return false;
+            if (isOperationalLockedFlight(f)) return false;
+            if (options && isFlightLockedByFidsOrTime(f, options).isLocked) return false;
+            return true;
+        });
+
+        for (const fA of bridgeFlights) {
+            const standA = flightUpdates.get(fA.id);
+            if (!standA) continue;
+            const schedA = topology.get(standA);
+            if (!schedA) continue;
+
+            const aArr = fA.scheduledArrival.getTime();
+            const aDep = fA.scheduledDeparture.getTime();
+            const oldGapA = getMinNeighborGap(schedA, aArr, aDep, new Set([fA.id]));
+            if (oldGapA >= CRITICAL_BUFFER_MS) continue;
+
+            let bestPartner: Flight | null = null;
+            let bestScore = -Infinity;
+
+            for (const fB of bridgeFlights) {
+                if (fB.id === fA.id) continue;
+                const standB = flightUpdates.get(fB.id);
+                if (!standB || standB === standA) continue;
+                const schedB = topology.get(standB);
+                if (!schedB) continue;
+
+                // Aynı zaman diliminde yakın komşu olmalı (tail/pairwise takas anlamlı olsun)
+                const bArr = fB.scheduledArrival.getTime();
+                const bDep = fB.scheduledDeparture.getTime();
+                if (Math.abs(aArr - bArr) > 4 * 3600000) continue;
+
+                const oldGapB = getMinNeighborGap(schedB, bArr, bDep, new Set([fB.id]));
+                const oldMin = Math.min(oldGapA, oldGapB);
+
+                const ign = new Set([fA.id, fB.id]);
+                // İki uçuş da karşı standın kurallarına (İskele, MARS, Cat-F, Bakım, Zaman) uyuyor mu?
+                if (!canFitIgnoringIds(topology, standB, fA, ign, maintenanceBlocks)) continue;
+                if (!canFitIgnoringIds(topology, standA, fB, ign, maintenanceBlocks)) continue;
+
+                const newGapA = getMinNeighborGap(schedB, aArr, aDep, ign);
+                const newGapB = getMinNeighborGap(schedA, bArr, bDep, ign);
+                const newMin = Math.min(newGapA, newGapB);
+
+                if (newMin >= oldMin + MIN_IMPROVE_MS && newMin > bestScore) {
+                    bestScore = newMin;
+                    bestPartner = fB;
+                }
+            }
+
+            if (bestPartner) {
+                const standB = flightUpdates.get(bestPartner.id)!;
+                const schedB = topology.get(standB)!;
+
+                schedA.intervals = schedA.intervals.filter(iv => iv.flightId !== fA.id);
+                schedB.intervals = schedB.intervals.filter(iv => iv.flightId !== bestPartner!.id);
+                placeOnStand(schedB, aArr, aDep, fA.id);
+                placeOnStand(schedA, bestPartner.scheduledArrival.getTime(), bestPartner.scheduledDeparture.getTime(), bestPartner.id);
+
+                flightUpdates.set(fA.id, standB);
+                flightUpdates.set(bestPartner.id, standA);
+                smoothedCount += 2;
+                swappedInPass = true;
+            }
+        }
+
+        // Tail-Swap (Arkasındakilerle Birlikte Kuyruk Takası): 1'e 1 çakışırsa arka arkaya gelen 2-4 uçağı birlikte takas et
+        for (const fA of bridgeFlights) {
+            const standA = flightUpdates.get(fA.id);
+            if (!standA) continue;
+            const schedA = topology.get(standA);
+            if (!schedA) continue;
+
+            const aArr = fA.scheduledArrival.getTime();
+            const aDep = fA.scheduledDeparture.getTime();
+            const oldGapA = getMinNeighborGap(schedA, aArr, aDep, new Set([fA.id]));
+            if (oldGapA >= CRITICAL_BUFFER_MS) continue;
+
+            // standA üzerinde fA'dan sonraki 6 saatlik kuyruğu topla
+            const tailA: Flight[] = schedA.intervals
+                .filter(iv => iv.start >= aArr && iv.start <= aArr + 8 * 3600000)
+                .sort((x, y) => x.start - y.start)
+                .map(iv => flightById.get(iv.flightId))
+                .filter((x): x is Flight => !!x && !isOperationalLockedFlight(x) && !(options && isFlightLockedByFidsOrTime(x, options).isLocked));
+            if (tailA.length < 2) continue;
+
+            for (const [standB, schedB] of topology.entries()) {
+                if (standB === standA || !isContactStand(standB)) continue;
+                const tailB: Flight[] = schedB.intervals
+                    .filter(iv => iv.start >= aArr - 2 * 3600000 && iv.start <= aArr + 8 * 3600000)
+                    .sort((x, y) => x.start - y.start)
+                    .map(iv => flightById.get(iv.flightId))
+                    .filter((x): x is Flight => !!x && !isOperationalLockedFlight(x) && !(options && isFlightLockedByFidsOrTime(x, options).isLocked));
+                if (tailB.length === 0) continue;
+
+                // Sadece başlangıç zamanı farkı varsa anlamlı
+                const bFirstArr = tailB[0].scheduledArrival.getTime();
+                if (bFirstArr <= aArr) continue;
+
+                const ignTail = new Set<string>([...tailA.map(x => x.id), ...tailB.map(x => x.id)]);
+                // tailA'daki ilk uçağın yeni boşluğu eski boşluğundan en az 15 dk daha geniş olmalı
+                const newFirstGapA = getMinNeighborGap(schedB, aArr, aDep, ignTail);
+                const oldFirstGapB = getMinNeighborGap(schedB, bFirstArr, tailB[0].scheduledDeparture.getTime(), new Set([tailB[0].id]));
+                const newFirstGapB = getMinNeighborGap(schedA, bFirstArr, tailB[0].scheduledDeparture.getTime(), ignTail);
+                if (Math.min(newFirstGapA, newFirstGapB) < Math.min(oldGapA, oldFirstGapB) + MIN_IMPROVE_MS) continue;
+
+                // Tüm tailA -> standB ve tüm tailB -> standA sığıyor mu?
+                let allFit = true;
+                for (const fx of tailA) {
+                    if (!canFitIgnoringIds(topology, standB, fx, ignTail, maintenanceBlocks)) { allFit = false; break; }
+                }
+                if (!allFit) continue;
+                for (const fy of tailB) {
+                    if (!canFitIgnoringIds(topology, standA, fy, ignTail, maintenanceBlocks)) { allFit = false; break; }
+                }
+                if (!allFit) continue;
+
+                // Commit Tail Swap!
+                schedA.intervals = schedA.intervals.filter(iv => !ignTail.has(iv.flightId));
+                schedB.intervals = schedB.intervals.filter(iv => !ignTail.has(iv.flightId));
+                for (const fx of tailA) {
+                    placeOnStand(schedB, fx.scheduledArrival.getTime(), fx.scheduledDeparture.getTime(), fx.id);
+                    flightUpdates.set(fx.id, standB);
+                }
+                for (const fy of tailB) {
+                    placeOnStand(schedA, fy.scheduledArrival.getTime(), fy.scheduledDeparture.getTime(), fy.id);
+                    flightUpdates.set(fy.id, standA);
+                }
+                smoothedCount += tailA.length + tailB.length;
+                swappedInPass = true;
+                break;
+            }
+        }
+
+        if (!swappedInPass) break;
     }
 
     return smoothedCount;
@@ -2793,7 +2962,7 @@ export function runAiBridgeAllocation(
             if (sched) placeOnStand(sched, f.scheduledArrival.getTime(), f.scheduledDeparture.getTime(), f.id);
         }
     }
-    const postRevSmoothed = runBufferSmoothingPass(revenueEnhancedResult.flights, smoothUpdates, smoothTopology, maintenanceBlocks);
+    const postRevSmoothed = runBufferSmoothingPass(revenueEnhancedResult.flights, smoothUpdates, smoothTopology, maintenanceBlocks, options);
     const smoothedScopedFlights = revenueEnhancedResult.flights.map(f => {
         const newPos = smoothUpdates.get(f.id);
         if (newPos && newPos !== f.parkingPosition) {

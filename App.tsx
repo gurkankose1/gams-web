@@ -20,7 +20,7 @@ import ChangePasswordModal from './auth/ChangePasswordModal.tsx';
 import CustomDragLayer from './components/CustomDragLayer.tsx';
 import HeaderRevenueSummary from './components/HeaderRevenueSummary.tsx';
 import BottomRevenueSummaryBar from './components/BottomRevenueSummaryBar.tsx';
-import { runAiBridgeAllocation, calculateBridgeUtilization, hasMaintenanceConflict, AiAllocationOptions, buildStandTopology, canFitOnStand, placeOnStand, isOperationalLockedFlight, isFlightLockedByFidsOrTime } from './services/ai-allocator.ts';
+import { runAiBridgeAllocation, calculateBridgeUtilization, hasMaintenanceConflict, AiAllocationOptions, buildStandTopology, canFitOnStand, placeOnStand, isOperationalLockedFlight, isFlightLockedByFidsOrTime, runBufferSmoothingPass } from './services/ai-allocator.ts';
 import { runAiCopilotAnalysis } from './services/ai-copilot.ts';
 import { getAircraftCategory, isContactStand } from './services/ams-rules.ts';
 import AiAllocationReportModal, { AiReportData } from './components/AiAllocationReportModal.tsx';
@@ -1111,7 +1111,16 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                     }
 
                     if (cpApplied > 0) {
-                        const candidateFlights = Array.from(flightMap.values());
+                        // Co-Pilot sonrası yeni gelen uçuşlar dahil tüm aralıkları tekrar dengele (1-to-1 + Tail Buffer Swap)
+                        const cpUpdates = new Map<string, string | null>();
+                        for (const f of flightMap.values()) cpUpdates.set(f.id, f.parkingPosition || null);
+                        runBufferSmoothingPass(Array.from(flightMap.values()), cpUpdates, cpTopology, maintenanceBlocks, options);
+                        const candidateFlights = Array.from(flightMap.values()).map(f => {
+                            const np = cpUpdates.get(f.id);
+                            return (np && np !== f.parkingPosition)
+                                ? { ...f, parkingPosition: np, gate: isContactStand(np) ? np : f.gate }
+                                : f;
+                        });
                         const candidateStats = calculateBridgeUtilization(candidateFlights, startDate, endDate);
                         if (candidateStats.bridgeAssignedCount >= stats.bridgeAssignedCount) {
                             newFlights = candidateFlights;
