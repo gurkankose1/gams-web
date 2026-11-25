@@ -454,8 +454,8 @@ export function getAllowedBridgeConcourses(f: Flight): string[] {
     }
 
     // 3. Karma Uçuşlar (Dış - İç veya İç - Dış):
-    // Havalimanı kuralı: Kural şartı yoktur; boş olan herhangi bir körüğe (A-G) yanaşabilir!
-    return ['Concourse A', 'Concourse B', 'Concourse C', 'Concourse D', 'Concourse E', 'Concourse F', 'Concourse G'];
+    // E ve C köprülerine karma (İç-Dış / Dış-İç) uçuş alınmaz! Sadece A, B, D, F ve G köprüleri kullanılabilir.
+    return ['Concourse A', 'Concourse B', 'Concourse D', 'Concourse F', 'Concourse G'];
 }
 
 // ---------------------------------------------------------------------------
@@ -2075,6 +2075,10 @@ export function runFromScratchAllocation(
                 // Saf İç Hat (İç - İç) asla Concourse A-F'ye verilemez
                 console.warn(`[SAFETY NET] Saf İç hat flight on International Concourse prevented (${pos}, ${f.id}). Demoting.`);
                 needsDemotion = true;
+            } else if ((concourse === 'Concourse C' || concourse === 'Concourse E') && f.type === 'turnaround' && (isArrDom !== isDepDom)) {
+                // Karma Uçuş (İç-Dış / Dış-İç) asla Concourse C veya E'ye verilemez
+                console.warn(`[SAFETY NET] Mixed (I/D) flight on ${concourse} prevented (${pos}, ${f.id}). Demoting.`);
+                needsDemotion = true;
             }
         }
 
@@ -2608,6 +2612,7 @@ export function runPreserveAndElevateAllocation(
             const isDepDom = f.type === 'turnaround' ? (f.departureIsDomestic ?? f.isDomestic) : f.isDomestic;
             if (concourse === 'Concourse G' && (!isArrDom && !isDepDom)) needsDemotion = true;
             else if (concourse !== 'Concourse G' && concourse.startsWith('Concourse') && (isArrDom && isDepDom)) needsDemotion = true;
+            else if ((concourse === 'Concourse C' || concourse === 'Concourse E') && f.type === 'turnaround' && (isArrDom !== isDepDom)) needsDemotion = true;
         }
 
         if (needsDemotion) {

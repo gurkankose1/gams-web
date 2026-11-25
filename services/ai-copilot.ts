@@ -464,7 +464,8 @@ export function runAiCopilotAnalysis(flights: Flight[], maintenanceBlocks?: Main
 
             // Can blocking mixed flight fit onto an open stand in Concourse A, B, C, D, E, F?
             let targetIntStand: StandSchedule | null = null;
-            const intConcourses = ['Concourse A', 'Concourse B', 'Concourse C', 'Concourse D', 'Concourse E', 'Concourse F'];
+            // Karma uçuşlar C ve E iskelelerine alınmaz (sadece A, B, D, F)
+            const intConcourses = ['Concourse A', 'Concourse B', 'Concourse D', 'Concourse F'];
 
             for (const ic of intConcourses) {
                 for (const isName of (CONCOURSE_LAYOUT[ic] || [])) {
