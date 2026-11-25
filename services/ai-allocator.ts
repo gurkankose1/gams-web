@@ -47,9 +47,10 @@ export interface BridgeUtilizationStats {
     propCount: number;
     noAcCount: number;
     bridgeRate: number; // e.g. 84.5%
-    // xPBB (Expected PBB) fields
-    xPbbRate: number; // e.g. 84.2%
-    deltaPbb: number; // bridgeRate - xPbbRate
+    // xPBB (Expected PBB) & xPBB-Live fields (Synchronized with xpbb-web.vercel.app)
+    xPbbRate: number;      // xPBB (Plan) e.g. 88.4%
+    xPbbLiveRate: number;  // xPBB-Live (Real-time / Operational) e.g. 86.1%
+    deltaPbb: number;      // bridgeRate - xPbbLiveRate
     avgGroundTimeMins: number;
     widebodyRatio: number;
 }
@@ -295,7 +296,8 @@ export function isFlightBridgeEligible(f: Flight): boolean {
 export function calculateBridgeUtilization(
     flights: Flight[],
     startDate?: Date,
-    endDate?: Date
+    endDate?: Date,
+    maintenanceBlocks?: MaintenanceBlock[]
 ): BridgeUtilizationStats {
     let eligibleCount = 0;
     let bridgeAssigned = 0;
@@ -307,15 +309,30 @@ export function calculateBridgeUtilization(
     let noAcCount = 0;
     let consideredFlightsCount = 0;
     let widebodyCount = 0;
+    let domCount = 0;
     let totalGroundTimeMins = 0;
     let validGroundTimeCount = 0;
+    let overnightMorningBlock = 0;
+    const hourlyDemand = new Array(24).fill(0);
+    const depDelays: number[] = [];
+    let arrOtpCount = 0;
+    let arrDelayTotal = 0;
 
     const startMs = startDate ? startDate.getTime() : 0;
     const endMs = endDate ? endDate.getTime() : Infinity;
+    const daySpan = (startDate && endDate && endMs > startMs)
+        ? Math.max(1, Math.round((endMs - startMs) / (24 * 3600 * 1000)))
+        : 1;
+
+    const parseRawDate = (val: any): Date | null => {
+        if (!val) return null;
+        if (val instanceof Date && !isNaN(val.getTime())) return val;
+        const d = new Date(val);
+        return !isNaN(d.getTime()) && d.getFullYear() > 1970 ? d : null;
+    };
 
     flights.forEach(f => {
         // ATD / Kalkış odaklı köprü kullanım hesabı: Sadece kalkış bacağı olan uçuşlar (turnaround veya departure)
-        // Arrival bacakları (towed geliş veya tek bacak geliş) yapay scheduledDeparture taşıdığı için ATD kalkış sayımına dahil edilemez.
         if (f.type === 'arrival') {
             return;
         }
@@ -323,7 +340,7 @@ export function calculateBridgeUtilization(
         // Sadece seçili tarih aralığında giden uçuşlar (ATD / scheduledDeparture referans alınır)
         const depMs = f.scheduledDeparture ? f.scheduledDeparture.getTime() : 0;
         if (depMs < startMs || depMs > endMs) {
-            return; // Seçili tarih aralığı dışındaki uçuşlar hesaba dahil edilmez
+            return;
         }
 
         consideredFlightsCount++;
@@ -360,24 +377,64 @@ export function calculateBridgeUtilization(
         // Eligible Passenger Flight (Sadece köprüye alınabilir yolcu uçuşları)
         eligibleCount++;
         
-        // Track widebody
+        // Track widebody & domestic
         const cat = getAircraftCategory(f.aircraftType);
-        if (cat === 'E' || cat === 'F') {
+        if (cat === 'D' || cat === 'E' || cat === 'F') {
             widebodyCount++;
         }
+        const isDomFlight = f.type === 'turnaround'
+            ? ((f.arrivalIsDomestic ?? f.isDomestic) && (f.departureIsDomestic ?? f.isDomestic))
+            : f.isDomestic;
+        if (isDomFlight) {
+            domCount++;
+        }
 
-        // Track ground time if available
+        // Track ground time (xpbb-web ref: up to 24h turnarounds)
+        let gtMins = 0;
         if (f.scheduledArrival && f.scheduledDeparture) {
-            const gt = (f.scheduledDeparture.getTime() - f.scheduledArrival.getTime()) / (1000 * 60);
-            if (gt >= 30 && gt <= 360) {
-                totalGroundTimeMins += gt;
+            gtMins = (f.scheduledDeparture.getTime() - f.scheduledArrival.getTime()) / (1000 * 60);
+            if (gtMins >= 30 && gtMins <= 1440) {
+                totalGroundTimeMins += gtMins;
                 validGroundTimeCount++;
+            }
+            // Hourly demand profile (0..23)
+            const arrH = Math.max(0, Math.min(23, f.scheduledArrival.getHours()));
+            const depH = Math.max(0, Math.min(23, f.scheduledDeparture.getHours()));
+            if (depH >= arrH) {
+                for (let h = arrH; h <= depH; h++) hourlyDemand[h]++;
+            } else {
+                for (let h = 0; h <= depH; h++) hourlyDemand[h]++;
             }
         }
 
+        // Delay & OTP signals from raw_data (if realized data exists)
+        if (f.raw_data) {
+            const std = parseRawDate(f.raw_data['STD']);
+            const atd = parseRawDate(f.raw_data['Off Block'] || f.raw_data['AOBT'] || f.raw_data['ATD']);
+            if (std && atd) {
+                const dMin = (atd.getTime() - std.getTime()) / 60000;
+                if (dMin >= -60 && dMin <= 360) depDelays.push(dMin);
+            }
+            const sta = parseRawDate(f.raw_data['STA']);
+            const ata = parseRawDate(f.raw_data['On Block'] || f.raw_data['AIBT'] || f.raw_data['ATA']);
+            if (sta && ata) {
+                const aMin = (ata.getTime() - sta.getTime()) / 60000;
+                if (aMin >= -60 && aMin <= 360) {
+                    arrDelayTotal++;
+                    if (aMin <= 15) arrOtpCount++;
+                }
+            }
+        }
+
+        const isOnBridge = !!(f.parkingPosition && isContactStand(f.parkingPosition));
         if (f.parkingPosition) {
-            if (isContactStand(f.parkingPosition)) {
+            if (isOnBridge) {
                 bridgeAssigned++;
+                // Sabah 06:00-09:59 pik dalgasında köprü işgal eden >= 6 saatlik gecelemeler
+                if (gtMins >= 360 && f.scheduledDeparture) {
+                    const hr = f.scheduledDeparture.getHours();
+                    if (hr >= 6 && hr <= 9) overnightMorningBlock++;
+                }
             } else {
                 remoteAssigned++;
             }
@@ -387,20 +444,56 @@ export function calculateBridgeUtilization(
     });
 
     const bridgeRate = eligibleCount > 0 ? (bridgeAssigned / eligibleCount) * 100 : 0;
-    const avgGt = validGroundTimeCount > 0 ? Math.round(totalGroundTimeMins / validGroundTimeCount) : 142;
-    const wideRatio = eligibleCount > 0 ? (widebodyCount / eligibleCount) : 0.245;
+    const avgGt = validGroundTimeCount > 0 ? Math.round(totalGroundTimeMins / validGroundTimeCount) : 215;
+    const widebodyRatioPct = eligibleCount > 0 ? Math.round((widebodyCount / eligibleCount) * 1000) / 10 : 22.5;
+    const domesticRatioPct = eligibleCount > 0 ? Math.round((domCount / eligibleCount) * 1000) / 10 : 21.5;
 
-    // xPBB (Expected PBB) Bütünleşik Formülü
-    // Baz tavan: %92.0 | GT esnemesi (ref 140dk): her 10 dk gecikme ~ %1.8 düşürür | Widebody esnemesi (ref %24.5) | Hacim
-    const gtDiff = (avgGt - 140) / 140;
-    const wideDiff = (wideRatio - 0.245);
-    const flightVolFactor = eligibleCount > 0 ? Math.min(0.02, (eligibleCount - 650) / 650 * 0.05) : 0;
+    // Bakım / Downgrade köprü kapalılık saatleri (yalnızca köprü stantları, seçili aralıkla kesişen)
+    let totalClosureHours = 0;
+    if (maintenanceBlocks && maintenanceBlocks.length > 0 && startDate && endDate) {
+        for (const blk of maintenanceBlocks) {
+            if (!blk.parkingPosition || !isContactStand(blk.parkingPosition)) continue;
+            const bStart = Math.max(startMs, new Date(blk.startTime).getTime());
+            const bEnd = Math.min(endMs, new Date(blk.endTime).getTime());
+            if (bEnd > bStart) {
+                totalClosureHours += (bEnd - bStart) / 3600000;
+            }
+        }
+    }
+    const closureHoursPerDay = totalClosureHours / daySpan;
+    const dailyEligible = eligibleCount / daySpan;
+    const maxSimultaneous = Math.round(Math.max(0, ...hourlyDemand) / daySpan);
+    const dailyOvernightBlock = overnightMorningBlock / daySpan;
 
-    let calcXpbb = 91.5 - (0.25 * gtDiff * 100) - (0.16 * wideDiff * 100) + (flightVolFactor * 100);
-    // Boundary clamp: %78 ile %93 arasında
-    calcXpbb = Math.max(78.0, Math.min(93.0, calcXpbb));
-    const finalXpbb = Math.round(calcXpbb * 10) / 10;
-    const delta = Math.round((bridgeRate - finalXpbb) * 10) / 10;
+    // xpbb-web.vercel.app (engine.ts) ile birebir kalibre xPBB (Plan) ve xPBB-Live formülleri (Nominal Tavan: 114 Stand)
+    const peakPenalty = Math.min(1.5, Math.max(0, (maxSimultaneous - 114) * 0.03));
+    const domPenalty = Math.min(1.0, Math.max(0, (domesticRatioPct - 21.5) * 0.08));
+    const overnightPenalty = eligibleCount > 0 ? Math.min(1.2, (dailyOvernightBlock / 114) * 1.5) : 0;
+
+    const avgDepDelay = depDelays.length > 0 ? (depDelays.reduce((a, b) => a + b, 0) / depDelays.length) : 15;
+    const depHoldPenalty = avgDepDelay > 25 ? Math.min(1.0, 0.03 * (avgDepDelay - 25)) : 0;
+
+    const otpArr = arrDelayTotal > 0 ? (arrOtpCount / arrDelayTotal) * 100 : 80;
+    const arrDisruptionPenalty = otpArr < 80 ? Math.min(1.2, Math.max(0, ((80 - otpArr) / 80) * 1.5)) : 0;
+    const slotDisruptionPenalty = 0; // Slot verisi Excel'de yoksa 0
+
+    const clPenalty = Math.min(2.5, (closureHoursPerDay / 45.0) * 0.7);
+    const gtPenalty = Math.max(-1.0, Math.min(1.5, 0.03 * ((avgGt - 215) / 215) * 100));
+    const widePenalty = Math.max(-0.8, Math.min(1.2, 0.06 * (widebodyRatioPct - 22.5)));
+    const volBonus = Math.max(-0.8, Math.min(0.8, ((dailyEligible - 730) / 730) * 1.0));
+
+    // Mükerrer Cezayı Sönümleme (Sub-additive Damping Envelope)
+    const rawOpsFriction = Math.max(0, gtPenalty) + peakPenalty + overnightPenalty + depHoldPenalty + arrDisruptionPenalty + slotDisruptionPenalty;
+    const dampedOpsPenalty = rawOpsFriction > 0 ? (rawOpsFriction / (1.0 + 0.18 * rawOpsFriction)) : 0;
+    const gtBonus = gtPenalty < 0 ? Math.abs(gtPenalty) * 0.4 : 0;
+
+    let xpbbPlan = 90.0 - (clPenalty * 0.6) - (Math.max(0, gtPenalty) * 0.4) - widePenalty - domPenalty + volBonus;
+    xpbbPlan = Math.max(83.0, Math.min(93.0, Math.round(xpbbPlan * 10) / 10));
+
+    let xpbbLive = 89.5 - clPenalty - widePenalty - domPenalty - dampedOpsPenalty + gtBonus + volBonus;
+    xpbbLive = Math.max(83.0, Math.min(93.0, Math.round(xpbbLive * 10) / 10));
+
+    const delta = Math.round((bridgeRate - xpbbLive) * 10) / 10;
 
     return {
         totalFlights: consideredFlightsCount,
@@ -413,10 +506,11 @@ export function calculateBridgeUtilization(
         propCount,
         noAcCount,
         bridgeRate: Math.round(bridgeRate * 10) / 10,
-        xPbbRate: finalXpbb,
+        xPbbRate: xpbbPlan,
+        xPbbLiveRate: xpbbLive,
         deltaPbb: delta,
         avgGroundTimeMins: avgGt,
-        widebodyRatio: Math.round(wideRatio * 1000) / 10
+        widebodyRatio: widebodyRatioPct
     };
 }
 
@@ -3248,7 +3342,7 @@ export function runAiBridgeAllocation(
     const combinedFlights = outsideFlights.length > 0
         ? [...outsideFlights, ...smoothedScopedFlights]
         : smoothedScopedFlights;
-    const finalStats = calculateBridgeUtilization(combinedFlights, startDate, endDate);
+    const finalStats = calculateBridgeUtilization(combinedFlights, startDate, endDate, maintenanceBlocks);
 
     return {
         ...revenueEnhancedResult,

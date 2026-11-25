@@ -885,8 +885,8 @@ const App: React.FC<{ user: User }> = ({ user }) => {
     const [allocationMessage, setAllocationMessage] = useState<string | null>(null);
 
     const bridgeStats = useMemo(() => {
-        return calculateBridgeUtilization(flights, startDate, endDate);
-    }, [flights, startDate, endDate]);
+        return calculateBridgeUtilization(flights, startDate, endDate, maintenanceBlocks);
+    }, [flights, startDate, endDate, maintenanceBlocks]);
 
     const availableDays = useMemo(() => {
         if (flights.length === 0) return [];
@@ -2116,15 +2116,22 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                             </div>
                         )}
 
-                        {/* xPBB (Expected PBB) & ΔPBB Badge */}
+                        {/* xPBB (Plan) & xPBB-Live & ΔPBB Badge (xpbb-web.vercel.app ile senkron) */}
                         {flights.length > 0 && bridgeStats && (
                             <div className="bg-gradient-to-r from-slate-900 to-indigo-950 border border-purple-500/40 rounded-lg px-2.5 py-1 flex items-center space-x-2 shadow select-none"
-                                 title={`xPBB™ (Expected PBB): Ortalama ${bridgeStats.avgGroundTimeMins} dk yer süresi ve %${bridgeStats.widebodyRatio.toFixed(1)} geniş gövde baskısına göre matematiksel köprü beklentisi %${bridgeStats.xPbbRate.toFixed(1)} idi. ΔPBB = %${bridgeStats.deltaPbb >= 0 ? '+' : ''}${bridgeStats.deltaPbb.toFixed(1)} Ramp Kontrol Katma Değeri.`}>
+                                 title={`xpbb-web.vercel.app (114 Nominal Tavan) Kalibre Formülü | xPBB Plan: %${bridgeStats.xPbbRate.toFixed(1)} | xPBB-Live (Operasyonel): %${bridgeStats.xPbbLiveRate.toFixed(1)} | Ort. Yer Süresi: ${bridgeStats.avgGroundTimeMins} dk | Geniş Gövde: %${bridgeStats.widebodyRatio.toFixed(1)} | ΔPBB = Gerçekleşen - xPBB-Live (%${bridgeStats.deltaPbb >= 0 ? '+' : ''}${bridgeStats.deltaPbb.toFixed(1)})`}>
                                 <span className="text-purple-300 font-bold text-xs flex items-center gap-1">
                                     🎯 xPBB:
                                 </span>
-                                <span className="text-purple-200 font-mono font-bold text-sm">
+                                <span className="text-purple-200 font-mono font-bold text-xs">
                                     %{bridgeStats.xPbbRate.toFixed(1)}
+                                </span>
+                                <span className="text-gray-600 text-[10px]">|</span>
+                                <span className="text-cyan-300 font-bold text-xs">
+                                    Live:
+                                </span>
+                                <span className="text-cyan-200 font-mono font-bold text-sm">
+                                    %{bridgeStats.xPbbLiveRate.toFixed(1)}
                                 </span>
                                 <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${bridgeStats.deltaPbb >= 0 ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'}`}>
                                     Δ {bridgeStats.deltaPbb >= 0 ? '+' : ''}{bridgeStats.deltaPbb.toFixed(1)}% {bridgeStats.deltaPbb > 0 ? '🏆' : ''}
