@@ -20,7 +20,8 @@ import ChangePasswordModal from './auth/ChangePasswordModal.tsx';
 import CustomDragLayer from './components/CustomDragLayer.tsx';
 import HeaderRevenueSummary from './components/HeaderRevenueSummary.tsx';
 import BottomRevenueSummaryBar from './components/BottomRevenueSummaryBar.tsx';
-import { runAiBridgeAllocation, calculateBridgeUtilization, hasMaintenanceConflict, AiAllocationOptions } from './services/ai-allocator.ts';
+import { runAiBridgeAllocation, calculateBridgeUtilization, hasMaintenanceConflict, AiAllocationOptions, buildStandTopology, canFitOnStand, placeOnStand, isOperationalLockedFlight, isFlightLockedByFidsOrTime } from './services/ai-allocator.ts';
+import { runAiCopilotAnalysis } from './services/ai-copilot.ts';
 import { getAircraftCategory, isContactStand } from './services/ams-rules.ts';
 import AiAllocationReportModal, { AiReportData } from './components/AiAllocationReportModal.tsx';
 import AiScorePlannerModal from './components/AiScorePlannerModal.tsx';
@@ -1038,7 +1039,88 @@ const App: React.FC<{ user: User }> = ({ user }) => {
         setTimeout(() => {
             try {
                 const initialStats = calculateBridgeUtilization(flights, startDate, endDate);
-                const { flights: newFlights, stats, swapDetails, totalSwapsPerformed, netFlightsGained, gapFillsPerformed, bufferSmoothedCount, revenueSwapSummary, fidsWarnings, fidsLockedCount, timeFilteredFlightCount } = runAiBridgeAllocation(flights, startDate, endDate, maintenanceBlocks, options);
+                const allocResult = runAiBridgeAllocation(flights, startDate, endDate, maintenanceBlocks, options);
+                let newFlights = allocResult.flights;
+                let stats = allocResult.stats;
+                let totalSwapsPerformed = allocResult.totalSwapsPerformed;
+                let netFlightsGained = allocResult.netFlightsGained;
+                const { swapDetails, gapFillsPerformed, bufferSmoothedCount, revenueSwapSummary, fidsWarnings, fidsLockedCount, timeFilteredFlightCount } = allocResult;
+
+                // Otomatik Co-Pilot Fırsat Taraması ve Güvenli Uygulama (Tek Butonda Birleşim)
+                const winStart = startDate.getTime() - 12 * 3600000;
+                const winEnd = endDate.getTime() + 12 * 3600000;
+                const scopedForCopilot = newFlights.filter(f => {
+                    const depMs = f.scheduledDeparture ? f.scheduledDeparture.getTime() : 0;
+                    const arrMs = f.scheduledArrival ? f.scheduledArrival.getTime() : depMs;
+                    return (depMs >= winStart && depMs <= winEnd) || (arrMs >= winStart && arrMs <= winEnd);
+                });
+                const cpAnalysis = runAiCopilotAnalysis(scopedForCopilot, maintenanceBlocks);
+                if (cpAnalysis.opportunities.length > 0) {
+                    const cpTopology = buildStandTopology(maintenanceBlocks);
+                    const flightMap = new Map(newFlights.map(f => [f.id, { ...f }]));
+                    for (const f of flightMap.values()) {
+                        if (f.parkingPosition && isContactStand(f.parkingPosition)) {
+                            const sched = cpTopology.get(f.parkingPosition);
+                            if (sched) placeOnStand(sched, f.scheduledArrival.getTime(), f.scheduledDeparture.getTime(), f.id);
+                        }
+                    }
+
+                    let cpApplied = 0;
+                    for (const opp of cpAnalysis.opportunities) {
+                        const targetF = flightMap.get(opp.flightId);
+                        if (!targetF || isOperationalLockedFlight(targetF)) continue;
+                        if (targetF.parkingPosition && isContactStand(targetF.parkingPosition)) continue;
+                        if (options && isFlightLockedByFidsOrTime(targetF, options).isLocked) continue;
+
+                        const sched = cpTopology.get(opp.targetPosition);
+                        if (!sched) continue;
+                        if (hasMaintenanceConflict(opp.targetPosition, targetF.scheduledArrival, targetF.scheduledDeparture, maintenanceBlocks)) continue;
+
+                        const cat = targetF.acCategory || getAircraftCategory(targetF.aircraftType || '');
+                        const isWide = cat === 'D' || cat === 'E' || cat === 'F';
+                        const isHeavy = cat === 'F';
+
+                        if (opp.relocatedFlight) {
+                            const relF = flightMap.get(opp.relocatedFlight.flightId);
+                            if (!relF || isOperationalLockedFlight(relF)) continue;
+                            if (options && isFlightLockedByFidsOrTime(relF, options).isLocked) continue;
+                            const relSched = cpTopology.get(opp.relocatedFlight.toPosition);
+                            if (!relSched) continue;
+                            const relCat = relF.acCategory || getAircraftCategory(relF.aircraftType || '');
+                            const relWide = relCat === 'D' || relCat === 'E' || relCat === 'F';
+                            const relHeavy = relCat === 'F';
+                            if (!canFitOnStand(relSched, relF.scheduledArrival.getTime(), relF.scheduledDeparture.getTime(), relWide, cpTopology, relHeavy)) continue;
+
+                            const oldRelSched = relF.parkingPosition ? cpTopology.get(relF.parkingPosition) : undefined;
+                            if (oldRelSched) oldRelSched.intervals = oldRelSched.intervals.filter(iv => iv.flightId !== relF.id);
+                            relF.parkingPosition = opp.relocatedFlight.toPosition;
+                            if (isContactStand(opp.relocatedFlight.toPosition)) relF.gate = opp.relocatedFlight.toPosition;
+                            placeOnStand(relSched, relF.scheduledArrival.getTime(), relF.scheduledDeparture.getTime(), relF.id);
+
+                            if (!canFitOnStand(sched, targetF.scheduledArrival.getTime(), targetF.scheduledDeparture.getTime(), isWide, cpTopology, isHeavy)) {
+                                continue;
+                            }
+                        } else {
+                            if (!canFitOnStand(sched, targetF.scheduledArrival.getTime(), targetF.scheduledDeparture.getTime(), isWide, cpTopology, isHeavy)) continue;
+                        }
+
+                        targetF.parkingPosition = opp.targetPosition;
+                        if (isContactStand(opp.targetPosition)) targetF.gate = opp.targetPosition;
+                        placeOnStand(sched, targetF.scheduledArrival.getTime(), targetF.scheduledDeparture.getTime(), targetF.id);
+                        cpApplied++;
+                    }
+
+                    if (cpApplied > 0) {
+                        const candidateFlights = Array.from(flightMap.values());
+                        const candidateStats = calculateBridgeUtilization(candidateFlights, startDate, endDate);
+                        if (candidateStats.bridgeAssignedCount >= stats.bridgeAssignedCount) {
+                            newFlights = candidateFlights;
+                            stats = candidateStats;
+                            totalSwapsPerformed += cpApplied;
+                            netFlightsGained += cpApplied;
+                        }
+                    }
+                }
 
                 const fidsMsg = (fidsLockedCount && fidsLockedCount > 0) ? `, 🛡️ ${fidsLockedCount} FIDS Kilitli` : '';
                 const timeMsg = (timeFilteredFlightCount && timeFilteredFlightCount > 0) ? `, ⏱️ ${timeFilteredFlightCount} Zaman Dışı Korundu` : '';
