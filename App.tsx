@@ -10,6 +10,7 @@ import FlightHistoryModal from './components/FlightHistoryModal.tsx';
 import FlightTrackingModal from './components/FlightTrackingModal.tsx';
 import MaintenanceModal from './components/MaintenanceModal.tsx';
 import { DateTime24Input } from './components/DateTime24Input.tsx';
+import { UniversalXpbbModal } from './components/UniversalXpbbModal.tsx';
 import MaintenanceImportModal from './components/MaintenanceImportModal.tsx';
 import ErrorBoundary from './components/ErrorBoundary.tsx';
 import ExcelErrorModal from './components/ExcelErrorModal.tsx';
@@ -731,6 +732,7 @@ const App: React.FC<{ user: User }> = ({ user }) => {
 
     const [isMappingModalOpen, setMappingModalOpen] = useState(false);
     const [isMaintenanceModalOpen, setMaintenanceModalOpen] = useState(false);
+    const [isUniversalXpbbOpen, setIsUniversalXpbbOpen] = useState(false);
     const [isMaintenanceManagementModalOpen, setMaintenanceManagementModalOpen] = useState(false);
     const [isMaintenanceImportModalOpen, setMaintenanceImportModalOpen] = useState(false);
     const [isAdminPanelOpen, setAdminPanelOpen] = useState(false);
@@ -2044,24 +2046,33 @@ const App: React.FC<{ user: User }> = ({ user }) => {
 
     if (activeAppModule === 'dashboard') {
         return (
-            <DashboardPortal
-                onSelectGAMS={navigateToPlanning}
-                flightsCount={flights.length}
-                user={user}
-                onQuickUploadExcel={(e) => {
-                    onFileUpload(e);
-                    navigateToPlanning();
-                }}
-            />
+            <>
+                <DashboardPortal
+                    onSelectGAMS={navigateToPlanning}
+                    onSelectUniversalXpbb={() => setIsUniversalXpbbOpen(true)}
+                    flightsCount={flights.length}
+                    user={user}
+                    onQuickUploadExcel={(e) => {
+                        onFileUpload(e);
+                        navigateToPlanning();
+                    }}
+                />
+                <UniversalXpbbModal
+                    isOpen={isUniversalXpbbOpen}
+                    onClose={() => setIsUniversalXpbbOpen(false)}
+                    gamsFlights={flights}
+                    gamsMaintenanceBlocks={maintenanceBlocks}
+                />
+            </>
         );
     }
 
     return (
         <div className="bg-gray-900 text-white h-screen flex flex-col overflow-hidden" onContextMenu={(e) => e.preventDefault()}>
-            <header className="flex flex-col px-3 py-2 bg-[#1a1f2c] border-b border-gray-750 shadow-xl flex-shrink-0 z-40 gap-y-2 text-xs">
-                {/* Top Row: Brand, Financial KPIs, Operational Groups, Super Set, Export & Quick Actions */}
-                <div className="flex items-center justify-between w-full">
-                    <div className="flex items-center gap-x-2.5">
+            <header className="flex flex-col px-3 py-1.5 bg-[#1a1f2c] border-b border-gray-750 shadow-xl flex-shrink-0 z-40 gap-y-1.5 text-xs">
+                {/* Top Row (Responsive Flex-Wrap — %100 ölçekte tüm tuşlar taşmadan görünür!) */}
+                <div className="flex flex-wrap items-center justify-between gap-y-1.5 gap-x-2 w-full">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
                         {/* Dashboard / Modüller Dönüş Butonu */}
                         <button
                             onClick={navigateToDashboard}
@@ -2075,13 +2086,13 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                         </button>
 
                         {/* GAMS Brand Badge */}
-                        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-gradient-to-r from-blue-950/90 to-indigo-950/90 border border-blue-500/30 shadow-sm">
+                        <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-gradient-to-r from-blue-950/90 to-indigo-950/90 border border-blue-500/30 shadow-sm">
                             <span className="text-sm font-black tracking-wider text-white">GAMS</span>
-                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 uppercase tracking-wider">AOS</span>
+                            <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-blue-500/20 text-blue-300 uppercase tracking-wider">AOS</span>
                         </div>
 
-                        {/* Modül Kısayolları (xPBB & KOI) */}
-                        <div className="hidden xl:flex items-center gap-1 bg-gray-800/60 p-0.5 rounded-lg border border-gray-750">
+                        {/* Modül Kısayolları (xPBB, Universal xPBB & KOI) */}
+                        <div className="flex items-center gap-1 bg-gray-800/60 p-0.5 rounded-lg border border-gray-750">
                             <a
                                 href="https://xpbb-web.vercel.app/"
                                 target="_blank"
@@ -2092,6 +2103,14 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                                 <span>xPBB</span>
                                 <span className="text-[9px] opacity-70">↗</span>
                             </a>
+                            <span className="text-gray-600 text-[10px]">|</span>
+                            <button
+                                onClick={() => setIsUniversalXpbbOpen(true)}
+                                className="flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold text-cyan-300 hover:text-white hover:bg-cyan-900/50 transition cursor-pointer"
+                                title="Universal xPBB™ Sıfır-Veri Fizik Motorunu Aç"
+                            >
+                                <span>🌍 Universal xPBB</span>
+                            </button>
                             <span className="text-gray-600 text-[10px]">|</span>
                             <a
                                 href="https://koi-hesaplama.vercel.app/"
@@ -2142,8 +2161,8 @@ const App: React.FC<{ user: User }> = ({ user }) => {
 
                         <div className="h-6 w-px bg-gray-700"></div>
 
-                        {/* Data Management Group */}
-                        <div className="flex items-center gap-1.5">
+                        {/* Data Management Group (flex-wrap for 100% zoom readability) */}
+                        <div className="flex flex-wrap items-center gap-1.5">
                             <label htmlFor="file-upload" className="flex items-center gap-1.5 px-3 py-1.5 font-semibold rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm hover:shadow transition duration-200 cursor-pointer select-none">
                                 <svg className="w-3.5 h-3.5 text-indigo-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
@@ -2370,9 +2389,9 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                     </div>
                 </div>
                 
-                {/* Bottom Row: View Selection, Flight Linking, Search & Filter Controls */}
-                <div className="flex items-center justify-between w-full border-t border-gray-750/80 pt-2">
-                    <div className="flex items-center gap-x-3">
+                {/* Bottom Row: View Selection, Flight Linking, Search & Filter Controls (flex-wrap for 100% zoom) */}
+                <div className="flex flex-wrap items-center justify-between gap-y-1.5 gap-x-2 w-full border-t border-gray-750/80 pt-1.5">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                         {/* View Switcher: Park Planı vs Gate Planı */}
                         <div className="flex items-center bg-gray-900/80 border border-gray-700/80 rounded-lg p-0.5 shadow-inner">
                             <button 
@@ -2412,7 +2431,7 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                     </div>
 
                     {/* Right Side: Filters, Search, Timeline Dates */}
-                    <div className="flex items-center gap-x-2.5">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                         {/* Domestic / International Filter Pill */}
                         <div className="flex items-center bg-gray-900/80 border border-gray-700/80 rounded-lg p-0.5 shadow-inner">
                             <button 
@@ -2855,6 +2874,14 @@ const App: React.FC<{ user: User }> = ({ user }) => {
 
             {/* Bottom Revenue Summary Bar */}
             <BottomRevenueSummaryBar flights={flights} startDate={startDate} endDate={endDate} />
+
+            {/* Universal xPBB Modal (Accessible from Planning Navbar & Dashboard) */}
+            <UniversalXpbbModal
+                isOpen={isUniversalXpbbOpen}
+                onClose={() => setIsUniversalXpbbOpen(false)}
+                gamsFlights={flights}
+                gamsMaintenanceBlocks={maintenanceBlocks}
+            />
         </div>
     );
 };
