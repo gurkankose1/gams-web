@@ -24,7 +24,8 @@ export function isWingletAircraft(aircraftType: string, rawData?: any): boolean 
 }
 
 export const PROPELLER_AIRCRAFT_TYPES = new Set([
-    'ATR72', 'AT72', 'AT75', 'AT76', 'ATR', 'DH8D', 'DH8', 'DHC8', 'CRJX', 'C560'
+    'ATR72', 'AT72', 'AT75', 'AT76', 'AT45', 'ATR', 'DH8D', 'DH8', 'DHC8',
+    'CRJ1', 'CRJ2', 'CRJ7', 'CRJ9', 'CRJX', 'C560'
 ]);
 
 export function isPropellerAircraft(aircraftType: string): boolean {

@@ -88,7 +88,7 @@ export const FLIGHT_MODE_DESCRIPTIONS: Record<string, { desc: string; category: 
     'Z': { desc: 'Maintenance', category: 'MAINTENANCE' },
 };
 
-export const PASSENGER_MODES = new Set(['J', 'C', 'G', 'A', 'B', 'L', 'O', 'Q', 'R', 'S', 'Y']);
+export const PASSENGER_MODES = new Set(['C', 'G', 'J', 'O', 'Y']);
 export const CARGO_MODES = new Set(['F', 'H', 'M', 'V']);
 export const GENERAL_AVIATION_MODES = new Set(['D', 'N']);
 export const SPECIAL_MAINTENANCE_MODES = new Set(['E', 'I', 'K', 'P', 'T', 'W', 'X', 'Z', 'U']);
@@ -355,6 +355,13 @@ export function calculateBridgeUtilization(
 
         consideredFlightsCount++;
 
+        // Resmi APOC Pay Kuralı (Mod Filtresiz!):
+        // İlgili günde (ATD) Concourse A-G köprülerinden giden TÜM uçaklar (teknik/ferry/kargo dahil) köprü sayısına eklenir!
+        const isOnBridge = !!(f.parkingPosition && isContactStand(f.parkingPosition));
+        if (isOnBridge) {
+            bridgeAssigned++;
+        }
+
         if (isNoAcFlight(f)) {
             noAcCount++;
             unassigned++;
@@ -384,7 +391,7 @@ export function calculateBridgeUtilization(
             return;
         }
 
-        // Eligible Passenger Flight (Resmi APOC: J, C, G, O, ... — pervaneli/kargo/GA/ferry hariç)
+        // Eligible Passenger Flight (Resmi APOC Payda: ATD + Dep Mod ∈ {C, G, J, O, Y} — köprüye alınamayan tipler hariç)
         eligibleCount++;
         
         // Geniş Gövde (Cat D/E/F) & Saf İç Hat (D/D)
@@ -424,11 +431,8 @@ export function calculateBridgeUtilization(
             }
         }
 
-        const isOnBridge = !!(f.parkingPosition && isContactStand(f.parkingPosition));
         if (f.parkingPosition) {
-            if (isOnBridge) {
-                bridgeAssigned++;
-            } else {
+            if (!isOnBridge) {
                 remoteAssigned++;
             }
         } else {
