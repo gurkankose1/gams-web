@@ -733,6 +733,7 @@ const App: React.FC<{ user: User }> = ({ user }) => {
     const [isMappingModalOpen, setMappingModalOpen] = useState(false);
     const [isMaintenanceModalOpen, setMaintenanceModalOpen] = useState(false);
     const [isUniversalXpbbOpen, setIsUniversalXpbbOpen] = useState(false);
+    const [openToolbarMenu, setOpenToolbarMenu] = useState<'maintenance' | 'tools' | null>(null);
     const [isMaintenanceManagementModalOpen, setMaintenanceManagementModalOpen] = useState(false);
     const [isMaintenanceImportModalOpen, setMaintenanceImportModalOpen] = useState(false);
     const [isAdminPanelOpen, setAdminPanelOpen] = useState(false);
@@ -2069,458 +2070,412 @@ const App: React.FC<{ user: User }> = ({ user }) => {
 
     return (
         <div className="bg-gray-900 text-white h-screen flex flex-col overflow-hidden" onContextMenu={(e) => e.preventDefault()}>
-            <header className="flex flex-col px-3 py-1.5 bg-[#1a1f2c] border-b border-gray-750 shadow-xl flex-shrink-0 z-40 gap-y-1.5 text-xs">
-                {/* Top Row (Responsive Flex-Wrap — %100 ölçekte tüm tuşlar taşmadan görünür!) */}
-                <div className="flex flex-wrap items-center justify-between gap-y-1.5 gap-x-2 w-full">
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
-                        {/* Dashboard / Modüller Dönüş Butonu */}
+            <header className="relative flex flex-col bg-[#141923] border-b border-gray-800 shadow-lg flex-shrink-0 z-40 text-xs select-none">
+                {/* Click-away backdrop for dropdown menus */}
+                {openToolbarMenu && (
+                    <div className="fixed inset-0 z-40" onClick={() => setOpenToolbarMenu(null)} />
+                )}
+
+                {/* ROW 1: Navigation, Live KPIs & Primary Operational Actions (Clean 42px Bar) */}
+                <div className="flex items-center justify-between gap-2 px-3 py-1.5 border-b border-gray-800/80 min-h-[42px]">
+                    {/* Left: Dashboard + Brand + Module Links + Live KPIs */}
+                    <div className="flex items-center gap-2 min-w-0">
                         <button
                             onClick={navigateToDashboard}
-                            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-200 hover:text-white border border-gray-700/80 shadow-sm transition font-semibold text-xs select-none cursor-pointer"
+                            className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-gray-800/90 hover:bg-gray-700 text-gray-200 hover:text-white border border-gray-700/80 transition font-semibold cursor-pointer flex-shrink-0"
                             title="Ana Dashboard / Modül Seçimine Dön"
                         >
                             <svg className="w-3.5 h-3.5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
                             </svg>
-                            <span>Dashboard</span>
+                            <span className="hidden sm:inline">Dashboard</span>
                         </button>
 
-                        {/* GAMS Brand Badge */}
-                        <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-gradient-to-r from-blue-950/90 to-indigo-950/90 border border-blue-500/30 shadow-sm">
-                            <span className="text-sm font-black tracking-wider text-white">GAMS</span>
-                            <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-blue-500/20 text-blue-300 uppercase tracking-wider">AOS</span>
+                        <div className="flex items-center gap-1 px-2 py-1 rounded-md bg-blue-950/80 border border-blue-500/30 flex-shrink-0">
+                            <span className="text-xs font-black tracking-wider text-white">GAMS</span>
+                            <span className="text-[9px] font-bold px-1 rounded bg-blue-500/25 text-blue-300">AOS</span>
                         </div>
 
-                        {/* Modül Kısayolları (xPBB, Universal xPBB & KOI) */}
-                        <div className="flex items-center gap-1 bg-gray-800/60 p-0.5 rounded-lg border border-gray-750">
+                        <div className="flex items-center gap-0.5 bg-gray-900/80 p-0.5 rounded-md border border-gray-800 flex-shrink-0">
                             <a
                                 href="https://xpbb-web.vercel.app/"
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium text-purple-300 hover:text-white hover:bg-purple-900/40 transition"
-                                title="xPBB™ Optimizasyon Portalına Git (Yeni Sekme)"
+                                className="px-2 py-0.5 rounded text-[11px] font-medium text-purple-300 hover:text-white hover:bg-purple-900/40 transition"
+                                title="xPBB™ Analitik Portalı"
                             >
-                                <span>xPBB</span>
-                                <span className="text-[9px] opacity-70">↗</span>
+                                xPBB ↗
                             </a>
-                            <span className="text-gray-600 text-[10px]">|</span>
                             <button
                                 onClick={() => setIsUniversalXpbbOpen(true)}
-                                className="flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold text-cyan-300 hover:text-white hover:bg-cyan-900/50 transition cursor-pointer"
-                                title="Universal xPBB™ Sıfır-Veri Fizik Motorunu Aç"
+                                className="px-2 py-0.5 rounded text-[11px] font-semibold text-cyan-300 hover:text-white hover:bg-cyan-900/40 transition cursor-pointer"
+                                title="Universal xPBB™ Sıfır-Veri Fizik Motoru"
                             >
-                                <span>🌍 Universal xPBB</span>
+                                🌍 Universal
                             </button>
-                            <span className="text-gray-600 text-[10px]">|</span>
                             <a
                                 href="https://koi-hesaplama.vercel.app/"
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium text-emerald-300 hover:text-white hover:bg-emerald-900/40 transition"
-                                title="KOI Ücret Hesaplama Portalına Git (Yeni Sekme)"
+                                className="px-2 py-0.5 rounded text-[11px] font-medium text-emerald-300 hover:text-white hover:bg-emerald-900/40 transition"
+                                title="KOI Ücret Hesaplama Portalı"
                             >
-                                <span>KOI</span>
-                                <span className="text-[9px] opacity-70">↗</span>
+                                KOI ↗
                             </a>
                         </div>
 
-                        {/* Financial Revenue Summary */}
-                        <HeaderRevenueSummary flights={flights} startDate={startDate} endDate={endDate} />
-
-                        {/* Bridge Utilization Rate KPI Badge */}
+                        {/* Live KPIs (Only shown when flights loaded, crisp single-line pills) */}
                         {flights.length > 0 && (
-                            <div className="bg-gradient-to-r from-indigo-950/90 to-purple-950/90 border border-indigo-400/50 rounded-lg px-2.5 py-1 flex items-center space-x-1.5 shadow select-none" title={`Kalkış (ATD) Bazlı Köprü Kullanım Oranı: Seçili dönemde kalkışı olan ${bridgeStats.eligibleFlightsCount} tarifeli/uygun yolcu uçağının ${bridgeStats.bridgeAssignedCount} tanesi köprüye (PBB Pier A-G) bağlandı.`}>
-                                <span className="text-indigo-300 font-bold">🌉 Köprü Oranı:</span>
-                                <span className="text-emerald-300 font-black text-sm">%{bridgeStats.bridgeRate.toFixed(1)}</span>
-                                <span className="text-gray-400 text-[10px]">({bridgeStats.bridgeAssignedCount}/{bridgeStats.eligibleFlightsCount} Yolcu)</span>
+                            <div className="flex items-center gap-1.5 ml-1">
+                                <div
+                                    className="bg-indigo-950/80 border border-indigo-500/40 rounded-md px-2 py-1 flex items-center gap-1.5"
+                                    title={`APOC Kalkış (ATD) Bazlı Köprü Oranı: ${bridgeStats.bridgeAssignedCount} / ${bridgeStats.eligibleFlightsCount} Yolcu`}
+                                >
+                                    <span className="text-indigo-300 font-semibold">🌉</span>
+                                    <span className="text-emerald-300 font-black font-mono">%{bridgeStats.bridgeRate.toFixed(1)}</span>
+                                    <span className="text-gray-400 text-[10px] font-mono hidden 2xl:inline">({bridgeStats.bridgeAssignedCount}/{bridgeStats.eligibleFlightsCount})</span>
+                                </div>
+
+                                {bridgeStats && (
+                                    <div
+                                        className="bg-slate-900 border border-purple-500/35 rounded-md px-2 py-1 flex items-center gap-1.5"
+                                        title={`xPBB Plan: %${bridgeStats.xPbbRate.toFixed(1)} | xPBB-Live: %${bridgeStats.xPbbLiveRate.toFixed(1)} | Ort. Yer: ${bridgeStats.avgGroundTimeMins} dk | WB: %${bridgeStats.widebodyRatio.toFixed(1)}`}
+                                    >
+                                        <span className="text-purple-300 font-semibold text-[11px]">xPBB</span>
+                                        <span className="text-cyan-200 font-mono font-bold">%{bridgeStats.xPbbLiveRate.toFixed(1)}</span>
+                                        <span className={`text-[10px] font-mono font-bold px-1 rounded ${bridgeStats.deltaPbb >= 0 ? 'bg-emerald-500/20 text-emerald-300' : 'bg-rose-500/20 text-rose-300'}`}>
+                                            {bridgeStats.deltaPbb >= 0 ? '+' : ''}{bridgeStats.deltaPbb.toFixed(1)}%
+                                        </span>
+                                    </div>
+                                )}
+
+                                <div className="hidden 2xl:flex">
+                                    <HeaderRevenueSummary flights={flights} startDate={startDate} endDate={endDate} />
+                                </div>
                             </div>
                         )}
+                    </div>
 
-                        {/* xPBB (Plan) & xPBB-Live & ΔPBB Badge (xpbb-web.vercel.app ile senkron) */}
-                        {flights.length > 0 && bridgeStats && (
-                            <div className="bg-gradient-to-r from-slate-900 to-indigo-950 border border-purple-500/40 rounded-lg px-2.5 py-1 flex items-center space-x-2 shadow select-none"
-                                 title={`xpbb-web.vercel.app (114 Nominal Tavan) Kalibre Formülü | xPBB Plan: %${bridgeStats.xPbbRate.toFixed(1)} | xPBB-Live (Operasyonel): %${bridgeStats.xPbbLiveRate.toFixed(1)} | Ort. Yer Süresi: ${bridgeStats.avgGroundTimeMins} dk | Geniş Gövde: %${bridgeStats.widebodyRatio.toFixed(1)} | ΔPBB = Gerçekleşen - xPBB-Live (%${bridgeStats.deltaPbb >= 0 ? '+' : ''}${bridgeStats.deltaPbb.toFixed(1)})`}>
-                                <span className="text-purple-300 font-bold text-xs flex items-center gap-1">
-                                    🎯 xPBB:
-                                </span>
-                                <span className="text-purple-200 font-mono font-bold text-xs">
-                                    %{bridgeStats.xPbbRate.toFixed(1)}
-                                </span>
-                                <span className="text-gray-600 text-[10px]">|</span>
-                                <span className="text-cyan-300 font-bold text-xs">
-                                    Live:
-                                </span>
-                                <span className="text-cyan-200 font-mono font-bold text-sm">
-                                    %{bridgeStats.xPbbLiveRate.toFixed(1)}
-                                </span>
-                                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${bridgeStats.deltaPbb >= 0 ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'}`}>
-                                    Δ {bridgeStats.deltaPbb >= 0 ? '+' : ''}{bridgeStats.deltaPbb.toFixed(1)}% {bridgeStats.deltaPbb > 0 ? '🏆' : ''}
-                                </span>
-                            </div>
-                        )}
+                    {/* Right: Clean Primary Action Buttons + Dropdowns */}
+                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                        <label
+                            htmlFor="file-upload"
+                            className="flex items-center gap-1.5 px-2.5 py-1.5 font-semibold rounded-md bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm transition cursor-pointer"
+                            title="IHK / Uçuş Excel Dosyası Yükle"
+                        >
+                            <span>📤</span>
+                            <span>Excel Yükle</span>
+                        </label>
+                        <input id="file-upload" type="file" className="hidden" onChange={onFileUpload} accept=".xlsx, .xls, .csv" />
 
-                        <div className="h-6 w-px bg-gray-700"></div>
+                        <button
+                            onClick={() => setIsAiScorePlannerModalOpen(true)}
+                            disabled={flights.length === 0 || isAiAllocating}
+                            className={`flex items-center gap-1.5 px-3 py-1.5 font-bold rounded-md text-white shadow transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer ${
+                                isAiAllocating
+                                    ? 'bg-purple-800 animate-pulse'
+                                    : 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500'
+                            }`}
+                            title="AI Skor & Gelir Takas Planla (Maks Köprü + € Swap)"
+                        >
+                            <span>⚡</span>
+                            <span>{isAiAllocating ? 'Planlanıyor...' : 'AI Planla'}</span>
+                        </button>
 
-                        {/* Data Management Group (flex-wrap for 100% zoom readability) */}
-                        <div className="flex flex-wrap items-center gap-1.5">
-                            <label htmlFor="file-upload" className="flex items-center gap-1.5 px-3 py-1.5 font-semibold rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm hover:shadow transition duration-200 cursor-pointer select-none">
-                                <svg className="w-3.5 h-3.5 text-indigo-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-                                </svg>
-                                Excel Yükle
-                            </label>
-                            <input id="file-upload" type="file" className="hidden" onChange={onFileUpload} accept=".xlsx, .xls, .csv" />
+                        <button
+                            onClick={() => setIsCopilotOpen(true)}
+                            disabled={flights.length === 0}
+                            className="flex items-center gap-1 px-2.5 py-1.5 font-semibold rounded-md bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-700 transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                            title="OCC AI Co-Pilot Fırsat Paneli"
+                        >
+                            <span>🤖</span>
+                            <span>Co-Pilot</span>
+                        </button>
 
-                            {/* ↶ UNDO / ↷ REDO / ↺ CANCEL / 💾 COMMIT */}
-                            <div className="flex items-center bg-gray-800/80 p-0.5 rounded-lg border border-gray-700/80 shadow-sm">
-                                <button
-                                    onClick={handleUndo}
-                                    disabled={undoStack.length === 0}
-                                    className="px-2 py-1 text-xs font-semibold rounded text-gray-200 hover:text-white hover:bg-gray-700/80 disabled:opacity-30 disabled:cursor-not-allowed transition flex items-center gap-1 cursor-pointer"
-                                    title="Geri Al (Ctrl+Z)"
-                                >
-                                    <span>↶</span>
-                                    <span>Geri Al</span>
-                                    {undoStack.length > 0 && <span className="text-[10px] bg-gray-700 px-1 rounded text-gray-300">{undoStack.length}</span>}
-                                </button>
-                                <button
-                                    onClick={handleRedo}
-                                    disabled={redoStack.length === 0}
-                                    className="px-2 py-1 text-xs font-semibold rounded text-gray-200 hover:text-white hover:bg-gray-700/80 disabled:opacity-30 disabled:cursor-not-allowed transition flex items-center gap-1 border-l border-gray-700 cursor-pointer"
-                                    title="Yinele (Ctrl+Y)"
-                                >
-                                    <span>↷</span>
-                                    <span>Yinele</span>
-                                    {redoStack.length > 0 && <span className="text-[10px] bg-gray-700 px-1 rounded text-gray-300">{redoStack.length}</span>}
-                                </button>
-                                <button
-                                    onClick={handleResetChanges}
-                                    disabled={undoStack.length === 0 && !committedFlights}
-                                    className="px-2 py-1 text-xs font-semibold rounded text-red-300 hover:text-red-100 hover:bg-red-950/60 disabled:opacity-30 disabled:cursor-not-allowed transition flex items-center gap-1 border-l border-gray-700 cursor-pointer"
-                                    title="Tüm bekleyen değişiklikleri iptal et ve önceki duruma dön (Cancel/Reset)"
-                                >
-                                    <span>↺</span>
-                                    <span>İptal Et</span>
-                                </button>
-                                <button
-                                    onClick={handleCommitPlan}
-                                    disabled={flights.length === 0}
-                                    className="px-2.5 py-1 text-xs font-semibold rounded bg-blue-600/80 hover:bg-blue-500 text-white transition flex items-center gap-1 border-l border-gray-700 shadow-sm cursor-pointer"
-                                    title="Mevcut planlamayı onayla ve sabitle (Commit)"
-                                >
-                                    <span>💾</span>
-                                    <span>Onayla</span>
-                                </button>
-                            </div>
+                        <button
+                            onClick={() => setIsDivertModalOpen(true)}
+                            className="flex items-center gap-1 px-2.5 py-1.5 font-semibold rounded-md bg-cyan-900/70 hover:bg-cyan-800 text-cyan-100 border border-cyan-600/50 transition cursor-pointer"
+                            title="Dinamik Divert & Kriz Kapasitesi (T+4 / T+8 / T+12)"
+                        >
+                            <span>🚨</span>
+                            <span>Divert</span>
+                        </button>
 
-                            {/* 🟠 TÜMÜNÜ HAVUZA ÇEK (UNALLOCATE ALL) */}
-                            <button 
-                                onClick={handleUnallocateAll}
-                                disabled={flights.length === 0}
-                                className="flex items-center gap-1.5 px-3 py-1.5 font-semibold rounded-lg bg-amber-600/90 hover:bg-amber-500 text-white shadow-sm transition duration-200 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer select-none border border-amber-500/50"
-                                title="Tüm uçuşların stant atamalarını kaldırıp bekleme havuzuna (Flight Pool) aktar"
-                            >
-                                <svg className="w-3.5 h-3.5 text-amber-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                </svg>
-                                Tümünü Havuza Çek
-                            </button>
-
-                            {/* 🟣 AI KÖPRÜ & REVENUE SWAP PLANLAMA (TEK BİRLEŞİK MOTOR) */}
-                            <button 
-                                onClick={() => setIsAiScorePlannerModalOpen(true)}
-                                disabled={flights.length === 0 || isAiAllocating}
-                                className={`flex items-center gap-1.5 px-3.5 py-1.5 font-bold rounded-lg text-white shadow-lg transition duration-200 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer select-none border border-purple-400/50 ${
-                                    isAiAllocating 
-                                        ? 'bg-purple-800 animate-pulse' 
-                                        : 'bg-gradient-to-r from-purple-600 via-indigo-600 to-emerald-600 hover:from-purple-500 hover:via-indigo-500 hover:to-emerald-500 shadow-indigo-700/40'
-                                }`}
-                                title="AI Skor & Gelir Takas Planla: Önce maksimum köprü kullanım oranını kurgular, ardından köprü oranını sabit tutarak açıktaki uçaklarla köprüdekileri gelir artırıcı şekilde takaslar."
-                            >
-                                <svg className={`w-3.5 h-3.5 text-purple-200 ${isAiAllocating ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
-                                </svg>
-                                <span>{isAiAllocating ? 'Planlanıyor & Takaslanıyor...' : '⚡ AI Skor & Gelir Takasla'}</span>
-                                <span className="text-[10px] font-black px-1.5 py-0.2 rounded bg-emerald-400 text-gray-950 shadow-sm ml-0.5">
-                                    Maks Köprü + € Swap
-                                </span>
-                            </button>
-
-                            {/* 🟢 OCC AI CO-PİLOT (MANUEL FIRSAT LİSTESİ) */}
-                            <button 
-                                onClick={() => setIsCopilotOpen(true)}
-                                disabled={flights.length === 0}
-                                className="flex items-center gap-1 px-2.5 py-1.5 font-semibold rounded-lg text-gray-200 hover:text-white shadow transition duration-200 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer select-none border border-gray-700/80 bg-gray-800/80 hover:bg-gray-750"
-                                title="Tekil fırsatları ve teşhisleri incelemek için OCC Co-Pilot panelini aç"
-                            >
-                                <span className="text-sm">🤖</span>
-                                <span>Co-Pilot Detay</span>
-                            </button>
-
-                            {/* 🚨 DİNAMİK DİVERT & KRİZ KAPASİTE (DAC) */}
+                        {/* Bakım Dropdown */}
+                        <div className="relative z-50">
                             <button
-                                onClick={() => setIsDivertModalOpen(true)}
-                                className="flex items-center gap-1.5 px-3 py-1.5 font-semibold rounded-lg text-white shadow-md transition duration-200 cursor-pointer select-none border border-cyan-400/50 bg-gradient-to-r from-cyan-700 via-blue-700 to-indigo-700 hover:from-cyan-600 hover:to-blue-600 shadow-cyan-900/40"
-                                title="Çevre meydan kapanmaları için T+4, T+8, T+12 saatlik boş stand ve divert kabul kapasitesini aç"
+                                onClick={() => setOpenToolbarMenu(prev => prev === 'maintenance' ? null : 'maintenance')}
+                                className="flex items-center gap-1.5 px-2.5 py-1.5 font-semibold rounded-md bg-gray-800 hover:bg-gray-700 text-amber-300 border border-gray-700 transition cursor-pointer"
+                                title="Bakım & Kapalılık İşlemleri"
                             >
-                                <span className="text-sm">🚨</span>
-                                <span>Divert & Kriz Kapasite</span>
-                                <span className="text-[10px] font-extrabold px-1.5 py-0.2 rounded bg-cyan-300 text-gray-950 shadow-sm">
-                                    T+4 / T+8
-                                </span>
-                            </button>
-
-
-                            {/* 🔑 GEMINI API KEY AYARLARI */}
-                            <button
-                                onClick={() => setIsGeminiSettingsOpen(true)}
-                                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition ${
-                                    geminiKeyActive
-                                        ? 'bg-purple-950/60 border-purple-500/50 text-purple-200 hover:bg-purple-900/80'
-                                        : 'bg-gray-800 border-gray-700 text-gray-400 hover:text-white'
-                                }`}
-                                title="Gemini API Anahtarı ve Model Ayarları"
-                            >
-                                <span className="text-xs">🔑</span>
-                                <span>API Key</span>
-                                <span className={`w-2 h-2 rounded-full ${geminiKeyActive ? 'bg-emerald-400 animate-pulse' : 'bg-gray-500'}`} />
-                            </button>
-
-                            <button 
-                                onClick={handleExportGateExcel} 
-                                className="flex items-center gap-1.5 px-3 py-1.5 font-semibold rounded-lg bg-gray-800/90 hover:bg-gray-750 text-emerald-400 hover:text-emerald-300 border border-emerald-600/40 shadow-sm transition duration-200"
-                                title="Uçuş atama ve gate bilgilerini Excel olarak dışa aktar"
-                            >
-                                <svg className="w-3.5 h-3.5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                                </svg>
-                                Gate Dışa Aktar
-                            </button>
-                        </div>
-
-                        <div className="h-6 w-px bg-gray-700"></div>
-
-                        {/* Maintenance Controls Group */}
-                        <div className="flex items-center bg-gray-900/70 border border-gray-700 rounded-lg p-0.5 shadow-inner">
-                            <button 
-                                onClick={() => { setEditingMaintenanceBlock(null); setMaintenanceModalOpen(true); }} 
-                                className="px-2.5 py-1 font-semibold text-amber-300 hover:bg-gray-800 rounded-md transition flex items-center gap-1"
-                                title="Yeni park pozisyonu bakımı ekle"
-                            >
-                                <span className="text-amber-400 font-bold">+</span> Bakım Ekle
-                            </button>
-                            <div className="h-4 w-px bg-gray-700/80 mx-0.5"></div>
-                            <button 
-                                onClick={() => setMaintenanceImportModalOpen(true)} 
-                                className="px-2.5 py-1 font-semibold text-indigo-400 hover:text-indigo-300 hover:bg-gray-800 rounded-md transition flex items-center gap-1"
-                                title="Excel dosyasından toplu bakım / downgrade yükle"
-                            >
-                                <span>📥</span> Bakım Excel Yükle
-                            </button>
-                            <div className="h-4 w-px bg-gray-700/80 mx-0.5"></div>
-                            <button 
-                                onClick={() => setMaintenanceManagementModalOpen(true)} 
-                                className="px-2.5 py-1 font-medium text-gray-300 hover:text-white hover:bg-gray-800 rounded-md transition flex items-center gap-1"
-                                title="Tanımlı bakımları listele ve yönet"
-                            >
-                                <span>🛠️</span> Bakım Yönetimi
+                                <span>🛠️</span>
+                                <span>Bakım</span>
                                 {maintenanceBlocks.length > 0 && (
-                                    <span className="bg-purple-600 text-white text-[10px] font-bold px-1.5 py-0.2 rounded-full ml-1">
+                                    <span className="bg-amber-500/25 text-amber-200 text-[10px] font-bold px-1.5 rounded-full">
                                         {maintenanceBlocks.length}
                                     </span>
                                 )}
+                                <span className="text-[9px] text-gray-400">▾</span>
                             </button>
+
+                            {openToolbarMenu === 'maintenance' && (
+                                <div className="absolute right-0 mt-1.5 w-52 rounded-xl bg-gray-900 border border-gray-700 shadow-2xl py-1.5 z-50">
+                                    <button
+                                        onClick={() => { setEditingMaintenanceBlock(null); setMaintenanceModalOpen(true); setOpenToolbarMenu(null); }}
+                                        className="w-full px-3 py-2 text-left text-xs text-amber-300 hover:bg-gray-800 flex items-center gap-2 transition"
+                                    >
+                                        <span>➕</span> Manuel Bakım Ekle
+                                    </button>
+                                    <button
+                                        onClick={() => { setMaintenanceImportModalOpen(true); setOpenToolbarMenu(null); }}
+                                        className="w-full px-3 py-2 text-left text-xs text-indigo-300 hover:bg-gray-800 flex items-center gap-2 transition"
+                                    >
+                                        <span>📥</span> Bakım Excel Yükle
+                                    </button>
+                                    <button
+                                        onClick={() => { setMaintenanceManagementModalOpen(true); setOpenToolbarMenu(null); }}
+                                        className="w-full px-3 py-2 text-left text-xs text-gray-200 hover:bg-gray-800 flex items-center justify-between transition"
+                                    >
+                                        <span className="flex items-center gap-2"><span>📋</span> Bakım Yönetimi</span>
+                                        <span className="text-[10px] font-mono bg-gray-800 px-1.5 py-0.5 rounded text-gray-400">{maintenanceBlocks.length}</span>
+                                    </button>
+                                </div>
+                            )}
                         </div>
 
-                        <div className="h-6 w-px bg-gray-700"></div>
+                        {/* Araçlar Dropdown (Secondary Actions neatly organized) */}
+                        <div className="relative z-50">
+                            <button
+                                onClick={() => setOpenToolbarMenu(prev => prev === 'tools' ? null : 'tools')}
+                                className={`flex items-center gap-1.5 px-2.5 py-1.5 font-semibold rounded-md border transition cursor-pointer ${
+                                    isSuperSetMode
+                                        ? 'bg-amber-500/20 text-amber-200 border-amber-400/60'
+                                        : 'bg-gray-800 hover:bg-gray-700 text-gray-200 border-gray-700'
+                                }`}
+                                title="Diğer Operasyon Araçları, Super Set, Dışa Aktarım ve Ayarlar"
+                            >
+                                <span>⚙️</span>
+                                <span>Araçlar</span>
+                                {isSuperSetMode && <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />}
+                                <span className="text-[9px] text-gray-400">▾</span>
+                            </button>
 
-                        {/* Super Set AMS Rule Bypass Mode */}
-                        <button
-                            onClick={() => setIsSuperSetMode(prev => !prev)}
-                            className={`flex items-center gap-2 px-3 py-1.5 font-bold rounded-lg transition duration-200 select-none shadow-sm border ${
-                                isSuperSetMode
-                                    ? 'bg-amber-400 text-gray-950 border-amber-300 ring-2 ring-amber-300/60 shadow-amber-500/20 animate-pulse'
-                                    : 'bg-gray-900/80 hover:bg-gray-800 text-amber-400 border-amber-500/40 hover:border-amber-400'
-                            }`}
-                            title="Tip ve MARS emniyeti hariç tüm destinasyon, iç/dış hat ve kargo kurallarını askıya alır."
-                        >
-                            <span className="text-sm">⚡</span>
-                            <span>Super Set</span>
-                            <span className={`text-[10px] font-black px-1.5 py-0.5 rounded tracking-wide ${isSuperSetMode ? 'bg-black text-amber-300' : 'bg-gray-800 text-gray-400 border border-gray-700'}`}>
-                                {isSuperSetMode ? 'AÇIK' : 'KAPALI'}
-                            </span>
-                        </button>
-                    </div>
-
-                    {/* Right Side: Quick Navigation & Clear */}
-                    <div className="flex items-center gap-x-2.5">
-                        <button 
-                            onClick={() => {
-                                if (flights.length === 0 || !mainContentRef.current) return;
-                                const sorted = [...flights].sort((a, b) => a.scheduledArrival.getTime() - b.scheduledArrival.getTime());
-                                const firstFlight = sorted[0];
-                                const startMs = startDate.getTime();
-                                const endMs = endDate.getTime();
-                                const totalMs = endMs - startMs;
-                                if (totalMs <= 0) return;
-
-                                const ratio = (firstFlight.scheduledArrival.getTime() - startMs) / totalMs;
-                                const scrollWidth = mainContentRef.current.scrollWidth;
-                                const clientWidth = mainContentRef.current.clientWidth;
-                                const targetScrollLeft = Math.max(0, Math.min(scrollWidth - clientWidth, ratio * scrollWidth - clientWidth / 4));
-                                mainContentRef.current.scrollTo({ left: targetScrollLeft, behavior: 'smooth' });
-                            }}
-                            className="flex items-center gap-1.5 px-3 py-1.5 font-semibold rounded-lg bg-blue-600 hover:bg-blue-500 text-white shadow-sm transition duration-200"
-                            title="Zaman akışında ilk uçuşun saatinin olduğu yere otomatik kaydır"
-                        >
-                            <span>🎯</span> Uçuşlara Git
-                        </button>
-
-                        <button 
-                            onClick={handleClearAllFlights} 
-                            className="flex items-center gap-1.5 px-2.5 py-1.5 font-semibold rounded-lg bg-red-950/40 hover:bg-red-900/60 text-red-400 hover:text-red-200 border border-red-800/40 transition duration-200"
-                            title="Tüm uçuşları ve bakım kayıtlarını temizle"
-                        >
-                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                            </svg>
-                            Tümünü Sil
-                        </button>
+                            {openToolbarMenu === 'tools' && (
+                                <div className="absolute right-0 mt-1.5 w-60 rounded-xl bg-gray-900 border border-gray-700 shadow-2xl py-1.5 z-50">
+                                    <button
+                                        onClick={() => { setIsSuperSetMode(prev => !prev); setOpenToolbarMenu(null); }}
+                                        className="w-full px-3 py-2 text-left text-xs hover:bg-gray-800 flex items-center justify-between transition"
+                                    >
+                                        <span className="text-amber-300 font-semibold flex items-center gap-2"><span>⚡</span> Super Set Modu</span>
+                                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${isSuperSetMode ? 'bg-amber-400 text-gray-950' : 'bg-gray-800 text-gray-400'}`}>
+                                            {isSuperSetMode ? 'AÇIK' : 'KAPALI'}
+                                        </span>
+                                    </button>
+                                    <button
+                                        onClick={() => { handleExportGateExcel(); setOpenToolbarMenu(null); }}
+                                        className="w-full px-3 py-2 text-left text-xs text-emerald-300 hover:bg-gray-800 flex items-center gap-2 transition"
+                                    >
+                                        <span>📥</span> Gate Planı Excel Dışa Aktar
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            setOpenToolbarMenu(null);
+                                            if (flights.length === 0 || !mainContentRef.current) return;
+                                            const sorted = [...flights].sort((a, b) => a.scheduledArrival.getTime() - b.scheduledArrival.getTime());
+                                            const firstFlight = sorted[0];
+                                            const startMs = startDate.getTime();
+                                            const endMs = endDate.getTime();
+                                            const totalMs = endMs - startMs;
+                                            if (totalMs <= 0) return;
+                                            const ratio = (firstFlight.scheduledArrival.getTime() - startMs) / totalMs;
+                                            const scrollWidth = mainContentRef.current.scrollWidth;
+                                            const clientWidth = mainContentRef.current.clientWidth;
+                                            const targetScrollLeft = Math.max(0, Math.min(scrollWidth - clientWidth, ratio * scrollWidth - clientWidth / 4));
+                                            mainContentRef.current.scrollTo({ left: targetScrollLeft, behavior: 'smooth' });
+                                        }}
+                                        disabled={flights.length === 0}
+                                        className="w-full px-3 py-2 text-left text-xs text-blue-300 hover:bg-gray-800 disabled:opacity-40 flex items-center gap-2 transition"
+                                    >
+                                        <span>🎯</span> İlk Uçuşa Odaklan
+                                    </button>
+                                    <button
+                                        onClick={() => { setIsGeminiSettingsOpen(true); setOpenToolbarMenu(null); }}
+                                        className="w-full px-3 py-2 text-left text-xs text-purple-300 hover:bg-gray-800 flex items-center justify-between transition"
+                                    >
+                                        <span className="flex items-center gap-2"><span>🔑</span> Gemini API Key</span>
+                                        <span className={`w-2 h-2 rounded-full ${geminiKeyActive ? 'bg-emerald-400' : 'bg-gray-500'}`} />
+                                    </button>
+                                    <div className="my-1 border-t border-gray-800" />
+                                    <button
+                                        onClick={() => { handleUnallocateAll(); setOpenToolbarMenu(null); }}
+                                        disabled={flights.length === 0}
+                                        className="w-full px-3 py-2 text-left text-xs text-amber-400 hover:bg-gray-800 disabled:opacity-40 flex items-center gap-2 transition"
+                                    >
+                                        <span>🟠</span> Tümünü Havuza Çek
+                                    </button>
+                                    <button
+                                        onClick={() => { handleClearAllFlights(); setOpenToolbarMenu(null); }}
+                                        className="w-full px-3 py-2 text-left text-xs text-rose-400 hover:bg-rose-950/60 flex items-center gap-2 transition"
+                                    >
+                                        <span>🗑️</span> Tüm Uçuşları Temizle
+                                    </button>
+                                </div>
+                            )}
+                        </div>
                     </div>
                 </div>
-                
-                {/* Bottom Row: View Selection, Flight Linking, Search & Filter Controls (flex-wrap for 100% zoom) */}
-                <div className="flex flex-wrap items-center justify-between gap-y-1.5 gap-x-2 w-full border-t border-gray-750/80 pt-1.5">
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                        {/* View Switcher: Park Planı vs Gate Planı */}
-                        <div className="flex items-center bg-gray-900/80 border border-gray-700/80 rounded-lg p-0.5 shadow-inner">
-                            <button 
-                                onClick={() => setCurrentView('parking')} 
-                                className={`px-3 py-1 font-semibold rounded-md transition duration-200 ${currentView === 'parking' ? 'bg-blue-600 text-white shadow' : 'text-gray-400 hover:text-gray-200'}`}
+
+                {/* ROW 2: Gantt Controls — View, Undo/Commit, Linking, Filters, Search & 24h Date Range (Clean 38px Bar) */}
+                <div className="flex items-center justify-between gap-2 px-3 py-1.5 bg-[#111620] min-h-[38px]">
+                    {/* Left: View + Undo/Redo/Commit + Link */}
+                    <div className="flex items-center gap-2">
+                        <div className="flex items-center bg-gray-900 border border-gray-700/80 rounded-md p-0.5">
+                            <button
+                                onClick={() => setCurrentView('parking')}
+                                className={`px-2.5 py-0.5 font-semibold rounded transition ${currentView === 'parking' ? 'bg-blue-600 text-white shadow' : 'text-gray-400 hover:text-gray-200'}`}
                             >
-                                Park Planı
+                                Park
                             </button>
-                            <button 
-                                onClick={() => setCurrentView('gate')} 
-                                className={`px-3 py-1 font-semibold rounded-md transition duration-200 ${currentView === 'gate' ? 'bg-blue-600 text-white shadow' : 'text-gray-400 hover:text-gray-200'}`}
+                            <button
+                                onClick={() => setCurrentView('gate')}
+                                className={`px-2.5 py-0.5 font-semibold rounded transition ${currentView === 'gate' ? 'bg-blue-600 text-white shadow' : 'text-gray-400 hover:text-gray-200'}`}
                             >
-                                Gate Planı
+                                Gate
                             </button>
                         </div>
 
-                        <div className="h-6 w-px bg-gray-700/60"></div>
-
-                        {/* Turnaround Linking Group */}
-                        <div className="flex items-center bg-gray-900/80 border border-gray-700/80 rounded-lg p-0.5 shadow-inner">
-                            <button 
-                                onClick={handleUnlink} 
-                                disabled={!canUnlink} 
-                                className="px-3 py-1 font-medium rounded-md transition duration-200 disabled:opacity-30 disabled:cursor-not-allowed text-gray-300 hover:text-white hover:bg-gray-800"
+                        {/* Compact Undo / Redo / Reset / Commit */}
+                        <div className="flex items-center bg-gray-900 border border-gray-700/80 rounded-md p-0.5">
+                            <button
+                                onClick={handleUndo}
+                                disabled={undoStack.length === 0}
+                                className="px-2 py-0.5 font-semibold rounded text-gray-200 hover:bg-gray-800 disabled:opacity-30 disabled:cursor-not-allowed transition flex items-center gap-1"
+                                title="Geri Al (Ctrl+Z)"
                             >
-                                Bağlantıyı Kopar
+                                <span>↶</span>
+                                {undoStack.length > 0 && <span className="text-[10px] text-gray-400">{undoStack.length}</span>}
                             </button>
-                            <div className="h-4 w-px bg-gray-700/80 mx-0.5"></div>
-                            <button 
-                                onClick={handleLink} 
-                                disabled={!canLink} 
-                                className="px-3 py-1 font-medium rounded-md transition duration-200 disabled:opacity-30 disabled:cursor-not-allowed text-gray-300 hover:text-white hover:bg-gray-800"
+                            <button
+                                onClick={handleRedo}
+                                disabled={redoStack.length === 0}
+                                className="px-2 py-0.5 font-semibold rounded text-gray-200 hover:bg-gray-800 disabled:opacity-30 disabled:cursor-not-allowed transition border-l border-gray-800"
+                                title="Yinele (Ctrl+Y)"
+                            >
+                                ↷
+                            </button>
+                            <button
+                                onClick={handleResetChanges}
+                                disabled={undoStack.length === 0 && !committedFlights}
+                                className="px-2 py-0.5 font-semibold rounded text-rose-300 hover:bg-rose-950/60 disabled:opacity-30 disabled:cursor-not-allowed transition border-l border-gray-800"
+                                title="Değişiklikleri İptal Et"
+                            >
+                                ↺
+                            </button>
+                            <button
+                                onClick={handleCommitPlan}
+                                disabled={flights.length === 0}
+                                className="px-2 py-0.5 font-semibold rounded bg-blue-600/80 hover:bg-blue-500 text-white disabled:opacity-30 transition ml-0.5"
+                                title="Planlamayı Onayla (Commit)"
+                            >
+                                💾 Onayla
+                            </button>
+                        </div>
+
+                        <div className="hidden lg:flex items-center bg-gray-900 border border-gray-700/80 rounded-md p-0.5">
+                            <button
+                                onClick={handleUnlink}
+                                disabled={!canUnlink}
+                                className="px-2 py-0.5 font-medium rounded disabled:opacity-30 disabled:cursor-not-allowed text-gray-300 hover:text-white hover:bg-gray-800 transition"
+                                title="Turnaround Bağlantısını Kopar"
+                            >
+                                Kopar
+                            </button>
+                            <button
+                                onClick={handleLink}
+                                disabled={!canLink}
+                                className="px-2 py-0.5 font-medium rounded disabled:opacity-30 disabled:cursor-not-allowed text-gray-300 hover:text-white hover:bg-gray-800 transition border-l border-gray-800"
+                                title="Geliş ve Gidişi Bağla"
                             >
                                 Bağla
                             </button>
                         </div>
                     </div>
 
-                    {/* Right Side: Filters, Search, Timeline Dates */}
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                        {/* Domestic / International Filter Pill */}
-                        <div className="flex items-center bg-gray-900/80 border border-gray-700/80 rounded-lg p-0.5 shadow-inner">
-                            <button 
-                                onClick={() => setActiveFilter('all')} 
-                                className={`px-2.5 py-1 font-semibold rounded-md transition duration-200 ${activeFilter === 'all' ? 'bg-purple-600 text-white shadow' : 'text-gray-400 hover:text-gray-200'}`}
+                    {/* Right: Dom/Int Filter + Search + Day Pills + 24h Date Range */}
+                    <div className="flex items-center gap-2">
+                        <div className="flex items-center bg-gray-900 border border-gray-700/80 rounded-md p-0.5">
+                            <button
+                                onClick={() => setActiveFilter('all')}
+                                className={`px-2 py-0.5 font-semibold rounded transition ${activeFilter === 'all' ? 'bg-purple-600 text-white' : 'text-gray-400 hover:text-gray-200'}`}
                             >
                                 Tümü
                             </button>
-                            <button 
-                                onClick={() => setActiveFilter('domestic')} 
-                                className={`px-2.5 py-1 font-semibold rounded-md transition duration-200 ${activeFilter === 'domestic' ? 'bg-red-800 text-white shadow' : 'text-gray-400 hover:text-gray-200'}`}
+                            <button
+                                onClick={() => setActiveFilter('domestic')}
+                                className={`px-2 py-0.5 font-semibold rounded transition ${activeFilter === 'domestic' ? 'bg-red-800 text-white' : 'text-gray-400 hover:text-gray-200'}`}
                             >
-                                İç Hat
+                                İç
                             </button>
-                            <button 
-                                onClick={() => setActiveFilter('international')} 
-                                className={`px-2.5 py-1 font-semibold rounded-md transition duration-200 ${activeFilter === 'international' ? 'bg-blue-800 text-white shadow' : 'text-gray-400 hover:text-gray-200'}`}
+                            <button
+                                onClick={() => setActiveFilter('international')}
+                                className={`px-2 py-0.5 font-semibold rounded transition ${activeFilter === 'international' ? 'bg-blue-800 text-white' : 'text-gray-400 hover:text-gray-200'}`}
                             >
-                                Dış Hat
+                                Dış
                             </button>
                         </div>
 
-                        {/* Search Input with Search Icon */}
                         <div className="relative">
-                            <svg className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <svg className="w-3.5 h-3.5 text-gray-400 absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                             </svg>
                             <input
                                 type="text"
-                                placeholder="Uçuş Ara (No, Tip, Reg)..."
+                                placeholder="Uçuş Ara..."
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
-                                className="bg-gray-900/90 border border-gray-700 rounded-lg pl-8 pr-3 py-1.5 text-white placeholder-gray-500 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 w-52 text-xs outline-none transition"
+                                className="bg-gray-900 border border-gray-700 rounded-md pl-7 pr-2 py-1 text-white placeholder-gray-500 focus:border-blue-500 w-36 xl:w-44 text-xs outline-none transition"
                             />
                         </div>
 
-                        {/* Day Pills & Unified Date Range Container */}
-                        <div className="flex items-center gap-2">
-                            {availableDays.length > 1 && (
-                                <div className="flex items-center gap-1 bg-gray-900/90 border border-gray-700/80 px-1.5 py-0.5 rounded-lg overflow-x-auto max-w-[280px] scrollbar-none shadow-inner">
+                        {availableDays.length > 1 && (
+                            <div className="hidden xl:flex items-center gap-0.5 bg-gray-900 border border-gray-700/80 px-1 py-0.5 rounded-md overflow-x-auto max-w-[200px] scrollbar-none">
+                                <button
+                                    onClick={handleSelectAllRange}
+                                    className={`px-1.5 py-0.5 rounded text-[10px] font-semibold transition ${
+                                        !availableDays.some(d => isDaySelected(d.date)) ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-gray-200'
+                                    }`}
+                                >
+                                    Tümü
+                                </button>
+                                {availableDays.map(d => (
                                     <button
-                                        onClick={handleSelectAllRange}
-                                        className={`px-2 py-0.5 rounded text-[11px] font-semibold transition select-none ${
-                                            !availableDays.some(d => isDaySelected(d.date))
-                                                ? 'bg-blue-600 text-white shadow'
-                                                : 'text-gray-400 hover:text-gray-200'
+                                        key={d.key}
+                                        onClick={() => handleSelectDay(d.date)}
+                                        className={`px-1.5 py-0.5 rounded text-[10px] font-semibold transition whitespace-nowrap ${
+                                            isDaySelected(d.date) ? 'bg-emerald-600 text-white' : 'text-gray-400 hover:text-gray-200'
                                         }`}
-                                        title="Tüm yüklenen uçuş haftasını kapsa"
+                                        title={`${d.label} (${d.count} kalkış)`}
                                     >
-                                        Tümü
+                                        {d.label}
                                     </button>
-                                    {availableDays.map(d => {
-                                        const selected = isDaySelected(d.date);
-                                        return (
-                                            <button
-                                                key={d.key}
-                                                onClick={() => handleSelectDay(d.date)}
-                                                className={`px-2 py-0.5 rounded text-[11px] font-semibold transition whitespace-nowrap select-none ${
-                                                    selected
-                                                        ? 'bg-emerald-600 text-white shadow ring-1 ring-emerald-400 font-bold'
-                                                        : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800'
-                                                }`}
-                                                title={`${d.label} (Toplam ${d.count} kalkış)`}
-                                            >
-                                                {d.label}
-                                            </button>
-                                        );
-                                    })}
-                                </div>
-                            )}
-
-                            {/* Unified Date Range Container (24h 00:00-23:59) */}
-                            <div className="flex items-center gap-1.5 bg-gray-900/80 border border-gray-700/80 px-2.5 py-1 rounded-lg text-xs">
-                                <span className="text-gray-400 font-medium">Başlangıç:</span>
-                                <DateTime24Input
-                                    id="start-date"
-                                    compact
-                                    value={formatDateForInput(startDate)}
-                                    onChange={(val) => handleStartDateChange({ target: { value: val } } as React.ChangeEvent<HTMLInputElement>)}
-                                />
-                                <span className="text-gray-600">|</span>
-                                <span className="text-gray-400 font-medium">Bitiş:</span>
-                                <DateTime24Input
-                                    id="end-date"
-                                    compact
-                                    value={formatDateForInput(endDate)}
-                                    onChange={(val) => handleEndDateChange({ target: { value: val } } as React.ChangeEvent<HTMLInputElement>)}
-                                />
+                                ))}
                             </div>
+                        )}
+
+                        <div className="flex items-center gap-1 bg-gray-900 border border-gray-700/80 px-2 py-0.5 rounded-md">
+                            <DateTime24Input
+                                id="start-date"
+                                compact
+                                value={formatDateForInput(startDate)}
+                                onChange={(val) => handleStartDateChange({ target: { value: val } } as React.ChangeEvent<HTMLInputElement>)}
+                            />
+                            <span className="text-gray-500 text-[10px]">–</span>
+                            <DateTime24Input
+                                id="end-date"
+                                compact
+                                value={formatDateForInput(endDate)}
+                                onChange={(val) => handleEndDateChange({ target: { value: val } } as React.ChangeEvent<HTMLInputElement>)}
+                            />
                         </div>
                     </div>
                 </div>
