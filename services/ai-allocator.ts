@@ -313,6 +313,8 @@ export function calculateBridgeUtilization(
     let long4hCount = 0;
     let totalGroundTimeMins = 0;
     let validGroundTimeCount = 0;
+    // 1440-dakikalık kesin yer işgal simülasyonu (xpbb-web.vercel.app ile birebir aynı!)
+    const minDemand = new Array(1440).fill(0);
     const hourlyDemand = new Array(24).fill(0);
     const hourlyClosed = new Array(24).fill(0);
 
@@ -340,6 +342,27 @@ export function calculateBridgeUtilization(
     };
 
     flights.forEach(f => {
+        // 1. xPBB V3.0 Dakika Bazlı Yer İşgali (xpbb-web ile birebir: seçili günle kesişen tüm uygun yolcu uçuşları)
+        if (f.type !== 'arrival' && !isNoAcFlight(f) && !isCargoModeFlight(f) && !isGeneralAviationFlight(f) && !isPropellerAircraft(f.aircraftType) && !isSpecialOrMaintenanceFlight(f) && isPassengerFlight(f)) {
+            const rawInSim = f.raw_data ? parseRawDate(f.raw_data['On Block'] || f.raw_data['AIBT'] || f.raw_data['ATA']) : null;
+            const rawOutSim = f.raw_data ? parseRawDate(f.raw_data['Off Block'] || f.raw_data['AOBT'] || f.raw_data['ATD']) : null;
+            const sIn = rawInSim || f.scheduledArrival;
+            let sOut = rawOutSim || f.scheduledDeparture;
+            if (sIn && sOut) {
+                if (sOut.getTime() < sIn.getTime()) sOut = new Date(sIn.getTime() + 90 * 60000);
+                if (sOut.getTime() - sIn.getTime() > 36 * 3600000) sOut = new Date(sIn.getTime() + 18 * 3600000);
+                const ovStart = Math.max(startMs, sIn.getTime());
+                const ovEnd = Math.min(endMs, sOut.getTime());
+                if (ovEnd > ovStart) {
+                    const mStart = startDate ? Math.max(0, Math.min(1439, Math.floor(((ovStart - startMs) % 86400000) / 60000))) : (sIn.getHours() * 60 + sIn.getMinutes());
+                    const durMins = Math.min(1440, Math.ceil((ovEnd - ovStart) / 60000));
+                    for (let k = 0; k < durMins; k++) {
+                        minDemand[(mStart + k) % 1440]++;
+                    }
+                }
+            }
+        }
+
         // Resmi APOC Gidiş Bazlı Standart: Sadece kalkış bacağı olan uçuşlar (turnaround veya departure)
         if (f.type === 'arrival') {
             return;
@@ -422,13 +445,6 @@ export function calculateBridgeUtilization(
             if (gtMins >= 240 && gtMins <= 1440) {
                 long4hCount++;
             }
-            const arrH = Math.max(0, Math.min(23, tIn.getHours()));
-            const depH = Math.max(0, Math.min(23, tOut.getHours()));
-            if (depH >= arrH) {
-                for (let h = arrH; h <= depH; h++) hourlyDemand[h]++;
-            } else {
-                for (let h = 0; h <= depH; h++) hourlyDemand[h]++;
-            }
         }
 
         if (f.parkingPosition) {
@@ -464,13 +480,20 @@ export function calculateBridgeUtilization(
         }
     }
 
+    // 1440 dakikalık işgal dizisinden 24 saatlik ortalama talep (xpbb-web.vercel.app ile birebir aynı!)
+    for (let h = 0; h < 24; h++) {
+        let sumM = 0;
+        for (let m = h * 60; m < (h + 1) * 60; m++) sumM += minDemand[m];
+        hourlyDemand[h] = Math.round(sumM / (60 * daySpan));
+    }
+
     // xPBB™ V3.0 (290 Gün / 206.804 Uçuş + 212 Gün Saatlik Kapalılık Kalibreli %100 Tabanlı Denklem)
     const NOMINAL_BRIDGES = 114;
     let totalDemHrs = 0;
     let ex114Hrs = 0;
     let exNetHrs = 0;
     for (let h = 0; h < 24; h++) {
-        const dem = (hourlyDemand[h] || 0) / daySpan;
+        const dem = hourlyDemand[h] || 0;
         const cl = Math.min(NOMINAL_BRIDGES, hourlyClosed[h] || 0);
         totalDemHrs += dem;
         ex114Hrs += Math.max(0, dem - NOMINAL_BRIDGES);

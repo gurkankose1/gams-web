@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { Flight } from '../types.ts';
 import { AiAllocationOptions } from '../services/ai-allocator.ts';
 import { getFidsPublicationStatus } from '../services/fids-service.ts';
+import { DateTime24Input } from './DateTime24Input.tsx';
 
 interface AiScorePlannerModalProps {
     isOpen: boolean;
@@ -281,11 +282,10 @@ export const AiScorePlannerModal: React.FC<AiScorePlannerModalProps> = ({
                                 <label className="text-xs text-gray-400 whitespace-nowrap">
                                     FIDS Hesaplama Referans Saati:
                                 </label>
-                                <input 
-                                    type="datetime-local" 
+                                <DateTime24Input
                                     value={referenceTimeStr}
-                                    onChange={(e) => setReferenceTimeStr(e.target.value)}
-                                    className="bg-gray-800 border border-gray-700 rounded-lg px-2.5 py-1 text-xs text-indigo-200 font-mono focus:border-indigo-500 focus:outline-none"
+                                    onChange={setReferenceTimeStr}
+                                    accentClass="text-indigo-200"
                                 />
                                 <span className="text-[11px] text-gray-500">
                                     (Test ve simülasyon için operasyonel an saati)
@@ -322,24 +322,24 @@ export const AiScorePlannerModal: React.FC<AiScorePlannerModalProps> = ({
                             <div className="pt-2 border-t border-gray-800 grid grid-cols-1 sm:grid-cols-2 gap-3">
                                 <div>
                                     <label className="text-xs text-gray-400 block mb-1">
-                                        Başlangıç Geliş Zamanı (Bu saatten sonra gelenler):
+                                        Başlangıç Geliş Zamanı (00:00–23:59):
                                     </label>
-                                    <input 
-                                        type="datetime-local" 
+                                    <DateTime24Input
                                         value={filterStartStr}
-                                        onChange={(e) => setFilterStartStr(e.target.value)}
-                                        className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-amber-200 font-mono focus:border-amber-500 focus:outline-none"
+                                        onChange={setFilterStartStr}
+                                        accentClass="text-amber-200"
+                                        className="w-full"
                                     />
                                 </div>
                                 <div>
                                     <label className="text-xs text-gray-400 block mb-1">
-                                        Bitiş Geliş Zamanı (Bu saate kadar gelenler):
+                                        Bitiş Geliş Zamanı (00:00–23:59):
                                     </label>
-                                    <input 
-                                        type="datetime-local" 
+                                    <DateTime24Input
                                         value={filterEndStr}
-                                        onChange={(e) => setFilterEndStr(e.target.value)}
-                                        className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-amber-200 font-mono focus:border-amber-500 focus:outline-none"
+                                        onChange={setFilterEndStr}
+                                        accentClass="text-amber-200"
+                                        className="w-full"
                                     />
                                 </div>
                             </div>

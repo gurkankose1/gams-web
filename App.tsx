@@ -9,6 +9,7 @@ import FlightContextMenu from './components/FlightContextMenu.tsx';
 import FlightHistoryModal from './components/FlightHistoryModal.tsx';
 import FlightTrackingModal from './components/FlightTrackingModal.tsx';
 import MaintenanceModal from './components/MaintenanceModal.tsx';
+import { DateTime24Input } from './components/DateTime24Input.tsx';
 import MaintenanceImportModal from './components/MaintenanceImportModal.tsx';
 import ErrorBoundary from './components/ErrorBoundary.tsx';
 import ExcelErrorModal from './components/ExcelErrorModal.tsx';
@@ -2483,24 +2484,22 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                                 </div>
                             )}
 
-                            {/* Unified Date Range Container */}
+                            {/* Unified Date Range Container (24h 00:00-23:59) */}
                             <div className="flex items-center gap-1.5 bg-gray-900/80 border border-gray-700/80 px-2.5 py-1 rounded-lg text-xs">
                                 <span className="text-gray-400 font-medium">Başlangıç:</span>
-                                <input 
-                                    id="start-date" 
-                                    type="datetime-local" 
-                                    value={formatDateForInput(startDate)} 
-                                    onChange={handleStartDateChange} 
-                                    className="bg-transparent text-gray-200 outline-none text-xs cursor-pointer focus:text-white"
+                                <DateTime24Input
+                                    id="start-date"
+                                    compact
+                                    value={formatDateForInput(startDate)}
+                                    onChange={(val) => handleStartDateChange({ target: { value: val } } as React.ChangeEvent<HTMLInputElement>)}
                                 />
                                 <span className="text-gray-600">|</span>
                                 <span className="text-gray-400 font-medium">Bitiş:</span>
-                                <input 
-                                    id="end-date" 
-                                    type="datetime-local" 
-                                    value={formatDateForInput(endDate)} 
-                                    onChange={handleEndDateChange} 
-                                    className="bg-transparent text-gray-200 outline-none text-xs cursor-pointer focus:text-white"
+                                <DateTime24Input
+                                    id="end-date"
+                                    compact
+                                    value={formatDateForInput(endDate)}
+                                    onChange={(val) => handleEndDateChange({ target: { value: val } } as React.ChangeEvent<HTMLInputElement>)}
                                 />
                             </div>
                         </div>

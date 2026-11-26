@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { MaintenanceBlock } from '../types.ts';
 import { PARKING_POSITIONS, MAINTENANCE_CATEGORIES } from '../constants.ts';
+import { DateTime24Input } from './DateTime24Input.tsx';
 
 interface MaintenanceModalProps {
   isOpen: boolean;
@@ -91,28 +92,26 @@ const MaintenanceModal: React.FC<MaintenanceModalProps> = ({ isOpen, onClose, on
           </div>
           <div>
             <label htmlFor="startTime" className="block text-sm font-medium text-gray-300 mb-1">
-              Başlangıç Zamanı <span className="text-red-500">*</span>
+              Başlangıç Zamanı (00:00–23:59) <span className="text-red-500">*</span>
             </label>
-            <input
+            <DateTime24Input
               id="startTime"
-              type="datetime-local"
               value={startTime}
-              onChange={(e) => setStartTime(e.target.value)}
-              required
-              className="w-full p-2 bg-gray-700 border rounded-md text-white border-gray-600"
+              onChange={setStartTime}
+              accentClass="text-white"
+              className="w-full"
             />
           </div>
           <div>
             <label htmlFor="endTime" className="block text-sm font-medium text-gray-300 mb-1">
-              Bitiş Zamanı <span className="text-red-500">*</span>
+              Bitiş Zamanı (00:00–23:59) <span className="text-red-500">*</span>
             </label>
-            <input
+            <DateTime24Input
               id="endTime"
-              type="datetime-local"
               value={endTime}
-              onChange={(e) => setEndTime(e.target.value)}
-              required
-              className="w-full p-2 bg-gray-700 border rounded-md text-white border-gray-600"
+              onChange={setEndTime}
+              accentClass="text-white"
+              className="w-full"
             />
           </div>
           <div>
