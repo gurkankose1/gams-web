@@ -498,8 +498,8 @@ export function calculateBridgeUtilization(
         hourlyDemand[h] = Math.round(sumM / (60 * daySpan));
     }
 
-    // xPBB™ V3.0 (290 Gün / 206.804 Uçuş + 212 Gün Saatlik Kapalılık Kalibreli %100 Tabanlı Denklem)
-    const NOMINAL_BRIDGES = 114;
+    // xPBB™ V3.0 (Güncel 113 Nominal Tavan: B10 standalone/B10R, F12 sadece F12L+F12R)
+    const NOMINAL_BRIDGES = 113;
     let totalDemHrs = 0;
     let ex114Hrs = 0;
     let exNetHrs = 0;
@@ -645,21 +645,26 @@ export function buildStandTopology(maintenanceBlocks?: MaintenanceBlock[]): Map<
         stands.forEach(stand => allStandsWithConcourse.push({ stand, concourse }));
     });
 
+    const allStandSet = new Set(allStandsWithConcourse.map(x => x.stand));
     const marsSubsByCenter = new Map<string, string[]>();
     allStandsWithConcourse.forEach(({ stand }) => {
         if (stand.endsWith('L') || stand.endsWith('R')) {
             const center = stand.slice(0, -1);
-            if (!marsSubsByCenter.has(center)) {
-                marsSubsByCenter.set(center, []);
+            // Sadece center pozisyonu da mevcutsa gerçek MARS/ilişkili alt pozisyondur (örn. B10<->B10R; F12 center kapalı olduğu için F12L/F12R bağımsız 2 dar gövdedir!)
+            if (allStandSet.has(center)) {
+                if (!marsSubsByCenter.has(center)) {
+                    marsSubsByCenter.set(center, []);
+                }
+                marsSubsByCenter.get(center)!.push(stand);
             }
-            marsSubsByCenter.get(center)!.push(stand);
         }
     });
 
     // Step 2: Populate StandSchedule
     allStandsWithConcourse.forEach(({ stand, concourse }) => {
-        const isMarsSub = stand.endsWith('L') || stand.endsWith('R');
-        const center = isMarsSub ? stand.slice(0, -1) : undefined;
+        const rawCenter = (stand.endsWith('L') || stand.endsWith('R')) ? stand.slice(0, -1) : undefined;
+        const isMarsSub = !!(rawCenter && allStandSet.has(rawCenter));
+        const center = isMarsSub ? rawCenter : undefined;
         const isMarsCenter = marsSubsByCenter.has(stand);
         const subs = isMarsCenter ? marsSubsByCenter.get(stand) : undefined;
 
@@ -694,6 +699,14 @@ export function buildStandTopology(maintenanceBlocks?: MaintenanceBlock[]): Map<
                     end: endMs,
                     flightId: `MAINTENANCE-${block.id}`
                 });
+            } else if (pos === 'F12') {
+                // F12 center kapalı olduğu için bakım kaydı gelirse hem F12L hem F12R'ye uygula
+                for (const sub of ['F12L', 'F12R']) {
+                    const subSched = topology.get(sub);
+                    if (subSched) {
+                        subSched.intervals.push({ start: startMs, end: endMs, flightId: `MAINTENANCE-${block.id}` });
+                    }
+                }
             }
         });
     }
@@ -710,6 +723,7 @@ export function canFitOnStand(
     isHeavy: boolean = false
 ): boolean {
     // 1. Physical & AMS Rule compatibility
+    if (schedule.stand === 'B10L' || schedule.stand === 'F12') return false;
     if (isWide && schedule.isMarsSub) return false;
     if (isWide && !schedule.isWideCompatible) return false;
     // Strict MARS Rule: Narrowbody (Cat A, B, C) cannot park on MARS Center stands!
@@ -921,7 +935,7 @@ export function runBufferSmoothingPass(
                         const candSched = topology.get(sName);
                         if (!candSched || !isContactStand(candSched.stand)) continue;
 
-                        if (isEveningWidebodyLongStay(flight) && candSched.isMarsCenter) continue;
+                        if (isEveningWidebodyLongStay(flight) && candSched.isMarsCenter && (candSched.marsSubStands?.length ?? 0) >= 2) continue;
                         if (hasMaintenanceConflict(sName, flight.scheduledArrival, flight.scheduledDeparture, maintenanceBlocks)) continue;
                         if (!canFitOnStand(candSched, arrMs, depMs, isWide, topology, isHeavy)) continue;
 
@@ -1333,8 +1347,8 @@ export function runFromScratchAllocation(
                 if (sched) dedicatedNarrowStands.push(sched);
             }
         }
-        // Also B2 and F2 if in allowed concourses
-        for (const s of ['B2', 'F2']) {
+        // Also B2, F2, F12L, F12R (F12 center kapalı; F12L ve F12R bağımsız 2 dar gövde köprüsü!)
+        for (const s of ['B2', 'F2', 'F12L', 'F12R']) {
             const conc = s.startsWith('B') ? 'Concourse B' : 'Concourse F';
             if (allowedConc.includes(conc)) {
                 const sched = topology.get(s);
@@ -1484,7 +1498,8 @@ export function runFromScratchAllocation(
             stands.forEach(s => {
                 const sched = topology.get(s);
                 if (sched && sched.isWideCompatible) {
-                    if (!sched.isMarsSub && !sched.isMarsCenter) {
+                    // B10 gibi yalnızca 1 alt kolu olan (B10R) pozisyonlar 2 dar gövde feda etmediği için standalone WB önceliği alır!
+                    if (!sched.isMarsSub && (!sched.isMarsCenter || (sched.marsSubStands && sched.marsSubStands.length <= 1))) {
                         singleCandidateStands.push(sched);
                     } else if (sched.isMarsCenter) {
                         centerCandidateStands.push(sched);
@@ -1944,8 +1959,10 @@ export function runFromScratchAllocation(
         currentBridgeFlights.sort((a, b) => {
             const posA = flightUpdates.get(a.id) || '';
             const posB = flightUpdates.get(b.id) || '';
-            const isCenterA = topology.get(posA)?.isMarsCenter ? 1 : 0;
-            const isCenterB = topology.get(posB)?.isMarsCenter ? 1 : 0;
+            const scA = topology.get(posA);
+            const scB = topology.get(posB);
+            const isCenterA = (scA?.isMarsCenter && (scA.marsSubStands?.length ?? 0) >= 2) ? 1 : 0;
+            const isCenterB = (scB?.isMarsCenter && (scB.marsSubStands?.length ?? 0) >= 2) ? 1 : 0;
             if (isCenterA !== isCenterB) return isCenterB - isCenterA;
             return getDurationMins(b) - getDurationMins(a);
         });
@@ -1962,8 +1979,8 @@ export function runFromScratchAllocation(
             const bDepMs = bridgeFlight.scheduledDeparture.getTime();
             const bDurHours = getDurationMins(bridgeFlight) / 60;
 
-            // Only consider swapping if it stays >= 2.5 hours or is a MARS Center stand
-            if (bDurHours < 2.5 && !standSched.isMarsCenter) continue;
+            // Only consider swapping if it stays >= 2.5 hours or is a true 2-sub MARS Center stand (B10 has only B10R, behaves as standalone WB)
+            if (bDurHours < 2.5 && !(standSched.isMarsCenter && (standSched.marsSubStands?.length ?? 0) >= 2)) continue;
 
             // Temporarily remove bridgeFlight from topology
             standSched.intervals = standSched.intervals.filter(i => i.flightId !== bridgeFlight.id);
@@ -2483,21 +2500,21 @@ export function runPreserveAndElevateAllocation(
                 }
             }
         } else {
-            // For widebody: single wide stands first, then MARS Center
+            // For widebody: single wide stands first (including B10 which only has 1 sub B10R), then 2-sub MARS Center
             for (const conc of allowedConc) {
                 for (const s of (CONCOURSE_LAYOUT[conc] || [])) {
                     const sched = topology.get(s);
-                    if (sched && sched.isWideCompatible && !sched.isMarsSub && !sched.isMarsCenter) {
+                    if (sched && sched.isWideCompatible && !sched.isMarsSub && (!sched.isMarsCenter || (sched.marsSubStands?.length ?? 0) <= 1)) {
                         candidateStands.push(sched);
                     }
                 }
             }
-            // KRİTİK KURAL: Akşam 15:00+ gelen 8-10h yatılı WB uçakları MARS Center'a ASLA verilemez (sadece standalone)!
+            // KRİTİK KURAL: Akşam 15:00+ gelen 8-10h yatılı WB uçakları 2-sub MARS Center'a ASLA verilemez (sadece standalone & B10)!
             if (!isEveningWidebodyLongStay(flight)) {
                 for (const conc of allowedConc) {
                     for (const s of (CONCOURSE_LAYOUT[conc] || [])) {
                         const sched = topology.get(s);
-                        if (sched && sched.isWideCompatible && sched.isMarsCenter) {
+                        if (sched && sched.isWideCompatible && sched.isMarsCenter && (sched.marsSubStands?.length ?? 0) >= 2) {
                             candidateStands.push(sched);
                         }
                     }
@@ -2552,7 +2569,7 @@ export function runPreserveAndElevateAllocation(
             const bDepMs = bridgeFlight.scheduledDeparture.getTime();
             const bDurHours = getDurationMins(bridgeFlight) / 60;
 
-            if (bDurHours < 3.5 && !standSched.isMarsCenter) continue;
+            if (bDurHours < 3.5 && !(standSched.isMarsCenter && (standSched.marsSubStands?.length ?? 0) >= 2)) continue;
 
             standSched.intervals = standSched.intervals.filter(i => i.flightId !== bridgeFlight.id);
 
@@ -2734,6 +2751,7 @@ export function runPreserveAndElevateAllocation(
             needsDemotion = true;
         }
 
+        if (pos === 'B10L' || pos === 'F12') needsDemotion = true;
         if (isWide && !isStandWidebodyCompatible(pos)) needsDemotion = true;
         if (isHeavy && !isStandCatFCompatible(pos)) needsDemotion = true;
         if (!isWide) {
@@ -3678,7 +3696,7 @@ export function runRevenueMaximizationSwapPass(
                             else if (tier === 2) sc += 180;
                             else if (tier === 3) sc += 80;
                         }
-                        if (fWide && candSched && !candSched.isMarsCenter) sc += 120;
+                        if (fWide && candSched && (!candSched.isMarsCenter || (candSched.marsSubStands?.length ?? 0) <= 1)) sc += 120;
                         if (!fWide && candSched && !candSched.isMarsSub && !isStandWidebodyCompatible(cand)) sc += 80;
                         if (sc > bestCleanScore) {
                             bestCleanScore = sc;

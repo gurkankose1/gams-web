@@ -34,13 +34,13 @@ export interface CompiledTopology {
 }
 
 export const DEFAULT_IGA_INVENTORY: UniversalStandInventory = {
-  name: 'İGA İstanbul (77 Pozisyon / 114 Nominal)',
+  name: 'İGA İstanbul (78 Pozisyon / 113 Nominal — B10 & F12 Güncel)',
   marsF: 15,
-  marsE: 22,
+  marsE: 20,          // B10 (standalone E) ve F12 (2x standalone C) MARS'tan çıktı
   standaloneF: 0,
-  standaloneE: 25,
+  standaloneE: 26,    // B10 eklendi (WB center veya tek B10R)
   standaloneD: 0,
-  standaloneC: 15,
+  standaloneC: 17,    // F12L ve F12R bağımsız 2 dar gövde eklendi
   domMarsE: 9,        // G Pieri: 9 MARS E (18 TOPLAM C)
   domStandaloneC: 0
 };

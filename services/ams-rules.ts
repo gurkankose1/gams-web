@@ -182,8 +182,8 @@ export const AMS_WIDEBODY_PERMITTED_STANDS = new Set([
     '501', '502', '506', '507', '508', '509',
     // Concourse A Widebody Stands
     'A2', 'A3', 'A5', 'A6', 'A7', 'A8', 'A9', 'A10', 'A11',
-    // Concourse B Widebody Stands
-    'B1', 'B3', 'B4', 'B5', 'B6', 'B7', 'B9', 'B12', 'B13', 'B14', 'B15', 'B16', 'B17', 'B18',
+    // Concourse B Widebody Stands (B10: Center WB veya sadece B10R NB — B10L kapalı)
+    'B1', 'B3', 'B4', 'B5', 'B6', 'B7', 'B9', 'B10', 'B12', 'B13', 'B14', 'B15', 'B16', 'B17', 'B18',
     // Concourse D Widebody Stands (D6 - D17) (Note: D1-D5 are strictly Narrowbody only)
     'D6', 'D7', 'D8', 'D9', 'D10', 'D11', 'D12', 'D13', 'D14', 'D15', 'D16', 'D17',
     // Concourse F Widebody Stands
@@ -222,7 +222,7 @@ export const NARROW_ONLY_CONTACT_STANDS = new Set([
     'C1', 'C2', 'C3', 'C4',
     'E1', 'E2', 'E3', 'E4',
     'D1', 'D2', 'D3', 'D4', 'D5',
-    'B2', 'F2'
+    'B2', 'F2', 'F12L', 'F12R'
 ]);
 
 export function isStandWidebodyCompatible(stand: string): boolean {
@@ -257,6 +257,21 @@ export function validateFlightPlacement(
     // If override is enabled for this flight, pass validation
     if (ruleOverrides && ruleOverrides.has(flight.id)) {
         return { isValid: true, reasons: [] };
+    }
+
+    // --- SPECIAL STAND RULES: B10L & F12 Center Disabled ---
+    const normTarget = (targetPosition || '').trim().toUpperCase();
+    if (normTarget === 'B10L') {
+        return {
+            isValid: false,
+            reasons: ['B10L park pozisyonu kullanıma kapalıdır. B10 yalnızca center geniş gövde (B10) veya tek dar gövde (B10R) olarak planlanabilir.']
+        };
+    }
+    if (normTarget === 'F12') {
+        return {
+            isValid: false,
+            reasons: ['F12 center pozisyonuna geniş gövde/uçak alınamaz. Yalnızca F12L ve F12R dar gövde olarak aynı anda kullanılabilir.']
+        };
     }
 
     const reasons: string[] = [];
