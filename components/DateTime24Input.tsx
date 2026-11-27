@@ -36,11 +36,11 @@ export const DateTime24Input: React.FC<DateTime24InputProps> = ({
     };
 
     const selectCls = compact
-        ? `bg-gray-800/90 border border-gray-700/80 rounded px-1 py-0.5 text-xs font-mono ${accentClass} outline-none cursor-pointer focus:border-indigo-500`
+        ? `bg-gray-800/90 border border-gray-700/80 rounded px-0.5 py-0.5 text-[11px] font-mono ${accentClass} outline-none cursor-pointer focus:border-indigo-500`
         : `bg-gray-800 border border-gray-700 rounded-md px-1.5 py-1 text-xs font-mono ${accentClass} outline-none cursor-pointer focus:border-indigo-500`;
 
     const dateCls = compact
-        ? `bg-transparent text-xs font-mono ${accentClass} outline-none cursor-pointer`
+        ? `bg-transparent text-[11px] font-mono ${accentClass} outline-none cursor-pointer w-[106px]`
         : `bg-gray-800 border border-gray-700 rounded-md px-2 py-1 text-xs font-mono ${accentClass} outline-none cursor-pointer focus:border-indigo-500 flex-1 min-w-0`;
 
     return (

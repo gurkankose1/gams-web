@@ -2153,24 +2153,24 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                     <div className="fixed inset-0 z-40" onClick={() => setOpenToolbarMenu(null)} />
                 )}
 
-                {/* ROW 1: Navigation, Live KPIs & Primary Operational Actions (Clean 42px Bar) */}
-                <div className="flex items-center justify-between gap-2 px-3 py-1.5 border-b border-gray-800/80 min-h-[42px]">
+                {/* ROW 1: Navigation, Live KPIs & Primary Operational Actions (Strict Non-Overlapping 42px Bar) */}
+                <div className="flex items-center justify-between gap-2 px-2.5 py-1.5 border-b border-gray-800/80 min-h-[42px] whitespace-nowrap">
                     {/* Left: Dashboard + Brand + Module Links + Live KPIs */}
-                    <div className="flex items-center gap-2 min-w-0">
+                    <div className="flex items-center gap-1.5 min-w-0 flex-shrink">
                         <button
                             onClick={navigateToDashboard}
-                            className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-gray-800/90 hover:bg-gray-700 text-gray-200 hover:text-white border border-gray-700/80 transition font-semibold cursor-pointer flex-shrink-0"
+                            className="flex items-center gap-1 px-2 py-1 rounded-md bg-gray-800/90 hover:bg-gray-700 text-gray-200 hover:text-white border border-gray-700/80 transition font-semibold cursor-pointer flex-shrink-0"
                             title="Ana Dashboard / Modül Seçimine Dön"
                         >
                             <svg className="w-3.5 h-3.5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
                             </svg>
-                            <span className="hidden sm:inline">Dashboard</span>
+                            <span className="hidden xl:inline">Dashboard</span>
                         </button>
 
                         <div className="flex items-center gap-1 px-2 py-1 rounded-md bg-blue-950/80 border border-blue-500/30 flex-shrink-0">
                             <span className="text-xs font-black tracking-wider text-white">GAMS</span>
-                            <span className="text-[9px] font-bold px-1 rounded bg-blue-500/25 text-blue-300">AOS</span>
+                            <span className="text-[9px] font-bold px-1 rounded bg-blue-500/25 text-blue-300 hidden xl:inline">AOS</span>
                         </div>
 
                         <div className="flex items-center gap-0.5 bg-gray-900/80 p-0.5 rounded-md border border-gray-800 flex-shrink-0">
@@ -2178,44 +2178,44 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                                 href="https://xpbb-web.vercel.app/"
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="px-2 py-0.5 rounded text-[11px] font-medium text-purple-300 hover:text-white hover:bg-purple-900/40 transition"
+                                className="px-1.5 py-0.5 rounded text-[11px] font-medium text-purple-300 hover:text-white hover:bg-purple-900/40 transition"
                                 title="xPBB™ Analitik Portalı"
                             >
-                                xPBB ↗
+                                xPBB↗
                             </a>
                             <button
                                 onClick={() => setIsUniversalXpbbOpen(true)}
-                                className="px-2 py-0.5 rounded text-[11px] font-semibold text-cyan-300 hover:text-white hover:bg-cyan-900/40 transition cursor-pointer"
+                                className="px-1.5 py-0.5 rounded text-[11px] font-semibold text-cyan-300 hover:text-white hover:bg-cyan-900/40 transition cursor-pointer"
                                 title="Universal xPBB™ Sıfır-Veri Fizik Motoru"
                             >
-                                🌍 Universal
+                                🌍 Univ.
                             </button>
                             <a
                                 href="https://koi-hesaplama.vercel.app/"
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="px-2 py-0.5 rounded text-[11px] font-medium text-emerald-300 hover:text-white hover:bg-emerald-900/40 transition"
+                                className="px-1.5 py-0.5 rounded text-[11px] font-medium text-emerald-300 hover:text-white hover:bg-emerald-900/40 transition"
                                 title="KOI Ücret Hesaplama Portalı"
                             >
-                                KOI ↗
+                                KOI↗
                             </a>
                         </div>
 
                         {/* Live KPIs (Only shown when flights loaded, crisp single-line pills) */}
                         {flights.length > 0 && (
-                            <div className="flex items-center gap-1.5 ml-1">
+                            <div className="flex items-center gap-1.5 flex-shrink-0">
                                 <div
-                                    className="bg-indigo-950/80 border border-indigo-500/40 rounded-md px-2 py-1 flex items-center gap-1.5"
+                                    className="bg-indigo-950/80 border border-indigo-500/40 rounded-md px-2 py-1 flex items-center gap-1"
                                     title={`APOC Kalkış (ATD) Bazlı Köprü Oranı: ${bridgeStats.bridgeAssignedCount} / ${bridgeStats.eligibleFlightsCount} Yolcu`}
                                 >
-                                    <span className="text-indigo-300 font-semibold">🌉</span>
+                                    <span className="text-indigo-300">🌉</span>
                                     <span className="text-emerald-300 font-black font-mono">%{bridgeStats.bridgeRate.toFixed(1)}</span>
                                     <span className="text-gray-400 text-[10px] font-mono hidden 2xl:inline">({bridgeStats.bridgeAssignedCount}/{bridgeStats.eligibleFlightsCount})</span>
                                 </div>
 
                                 {bridgeStats && (
                                     <div
-                                        className="bg-slate-900 border border-purple-500/35 rounded-md px-2 py-1 flex items-center gap-1.5"
+                                        className="bg-slate-900 border border-purple-500/35 rounded-md px-2 py-1 flex items-center gap-1"
                                         title={`xPBB Plan: %${bridgeStats.xPbbRate.toFixed(1)} | xPBB-Live: %${bridgeStats.xPbbLiveRate.toFixed(1)} | Ort. Yer: ${bridgeStats.avgGroundTimeMins} dk | WB: %${bridgeStats.widebodyRatio.toFixed(1)}`}
                                     >
                                         <span className="text-purple-300 font-semibold text-[11px]">xPBB</span>
@@ -2237,18 +2237,18 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                     <div className="flex items-center gap-1.5 flex-shrink-0">
                         <label
                             htmlFor="file-upload"
-                            className="flex items-center gap-1.5 px-2.5 py-1.5 font-semibold rounded-md bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm transition cursor-pointer"
+                            className="flex items-center gap-1 px-2.5 py-1.5 font-semibold rounded-md bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm transition cursor-pointer"
                             title="IHK / Uçuş Excel Dosyası Yükle"
                         >
                             <span>📤</span>
-                            <span>Excel Yükle</span>
+                            <span>Excel</span>
                         </label>
                         <input id="file-upload" type="file" className="hidden" onChange={onFileUpload} accept=".xlsx, .xls, .csv" />
 
                         <button
                             onClick={() => setIsAiScorePlannerModalOpen(true)}
                             disabled={flights.length === 0 || isAiAllocating}
-                            className={`flex items-center gap-1.5 px-3 py-1.5 font-bold rounded-md text-white shadow transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer ${
+                            className={`flex items-center gap-1 px-2.5 py-1.5 font-bold rounded-md text-white shadow transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer ${
                                 isAiAllocating
                                     ? 'bg-purple-800 animate-pulse'
                                     : 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500'
@@ -2262,7 +2262,7 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                         <button
                             onClick={() => setIsCopilotOpen(true)}
                             disabled={flights.length === 0}
-                            className="flex items-center gap-1 px-2.5 py-1.5 font-semibold rounded-md bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-700 transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                            className="flex items-center gap-1 px-2 py-1.5 font-semibold rounded-md bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-700 transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                             title="OCC AI Co-Pilot Fırsat Paneli"
                         >
                             <span>🤖</span>
@@ -2271,7 +2271,7 @@ const App: React.FC<{ user: User }> = ({ user }) => {
 
                         <button
                             onClick={() => setIsDivertModalOpen(true)}
-                            className="flex items-center gap-1 px-2.5 py-1.5 font-semibold rounded-md bg-cyan-900/70 hover:bg-cyan-800 text-cyan-100 border border-cyan-600/50 transition cursor-pointer"
+                            className="flex items-center gap-1 px-2 py-1.5 font-semibold rounded-md bg-cyan-900/70 hover:bg-cyan-800 text-cyan-100 border border-cyan-600/50 transition cursor-pointer"
                             title="Dinamik Divert & Kriz Kapasitesi (T+4 / T+8 / T+12)"
                         >
                             <span>🚨</span>
@@ -2282,13 +2282,13 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                         <div className="relative z-50">
                             <button
                                 onClick={() => setOpenToolbarMenu(prev => prev === 'maintenance' ? null : 'maintenance')}
-                                className="flex items-center gap-1.5 px-2.5 py-1.5 font-semibold rounded-md bg-gray-800 hover:bg-gray-700 text-amber-300 border border-gray-700 transition cursor-pointer"
+                                className="flex items-center gap-1 px-2 py-1.5 font-semibold rounded-md bg-gray-800 hover:bg-gray-700 text-amber-300 border border-gray-700 transition cursor-pointer"
                                 title="Bakım & Kapalılık İşlemleri"
                             >
                                 <span>🛠️</span>
                                 <span>Bakım</span>
                                 {maintenanceBlocks.length > 0 && (
-                                    <span className="bg-amber-500/25 text-amber-200 text-[10px] font-bold px-1.5 rounded-full">
+                                    <span className="bg-amber-500/25 text-amber-200 text-[10px] font-bold px-1 rounded-full">
                                         {maintenanceBlocks.length}
                                     </span>
                                 )}
@@ -2402,49 +2402,57 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                     </div>
                 </div>
 
-                {/* ROW 2: Gantt Controls — View, Undo/Commit, Linking, Filters, Search & 24h Date Range (Clean 38px Bar) */}
-                <div className="flex items-center justify-between gap-2 px-3 py-1.5 bg-[#111620] min-h-[38px]">
-                    {/* Left: View + Undo/Redo/Commit + Link */}
-                    <div className="flex items-center gap-2">
+                {/* ROW 2: Gantt Controls — Strict Non-Overlapping 38px Bar (fits 1280px+ at 100% zoom!) */}
+                <div className="flex items-center justify-between gap-2 px-2.5 py-1 bg-[#111620] min-h-[38px] overflow-x-auto scrollbar-none whitespace-nowrap">
+                    {/* Left: View + Time Mode + Compact Undo/Commit + Link */}
+                    <div className="flex items-center gap-1.5 flex-shrink-0">
                         <div className="flex items-center bg-gray-900 border border-gray-700/80 rounded-md p-0.5">
                             <button
                                 onClick={() => setCurrentView('parking')}
-                                className={`px-2.5 py-0.5 font-semibold rounded transition ${currentView === 'parking' ? 'bg-blue-600 text-white shadow' : 'text-gray-400 hover:text-gray-200'}`}
+                                className={`px-2 py-0.5 font-semibold rounded transition ${currentView === 'parking' ? 'bg-blue-600 text-white shadow' : 'text-gray-400 hover:text-gray-200'}`}
                             >
                                 Park
                             </button>
                             <button
                                 onClick={() => setCurrentView('gate')}
-                                className={`px-2.5 py-0.5 font-semibold rounded transition ${currentView === 'gate' ? 'bg-blue-600 text-white shadow' : 'text-gray-400 hover:text-gray-200'}`}
+                                className={`px-2 py-0.5 font-semibold rounded transition ${currentView === 'gate' ? 'bg-blue-600 text-white shadow' : 'text-gray-400 hover:text-gray-200'}`}
                             >
                                 Gate
                             </button>
                         </div>
 
-                        {/* Planlama Zaman Modu Anahtarı: Gerçekleşmiş (AIBT-AOBT) vs Canlı Öngörü (ETA-ETD + Gölge Barlar) */}
-                        <div className="flex items-center bg-gray-900 border border-gray-700/80 rounded-md p-0.5" title="Gerçekleşmiş (AIBT–AOBT) veya Canlı Öngörü (ETA–ETD + 7 Yıllık Hayalet Gölge Çubukları) modları arasında geçiş yap">
+                        {/* Planlama Zaman Modu Anahtarı: AIBT–AOBT vs ETA–ETD (+ 7 Yıllık Gölge Barlar) */}
+                        <div className="flex items-center bg-gray-900 border border-gray-700/80 rounded-md p-0.5" title="Gerçekleşmiş (AIBT–AOBT) veya Canlı Öngörü (ETA–ETD + 7 Yıllık Hayalet Gölge Çubukları: Sarı = Min Çevrim Açığı, Pembe = ETD Gecikme Alışkanlığı)">
                             <button
                                 onClick={() => handleSwitchPlanningTimeMode('AIBT_AOBT')}
-                                className={`px-2 py-0.5 font-semibold rounded transition flex items-center gap-1 ${planningTimeMode === 'AIBT_AOBT' ? 'bg-emerald-700 text-white shadow' : 'text-gray-400 hover:text-gray-200'}`}
+                                className={`px-1.5 py-0.5 font-semibold rounded transition flex items-center gap-1 text-[11px] ${planningTimeMode === 'AIBT_AOBT' ? 'bg-emerald-700 text-white shadow' : 'text-gray-400 hover:text-gray-200'}`}
                             >
                                 <span>📊</span>
-                                <span>AIBT–AOBT</span>
+                                <span>AIBT</span>
                             </button>
                             <button
                                 onClick={() => handleSwitchPlanningTimeMode('ETA_ETD')}
-                                className={`px-2 py-0.5 font-semibold rounded transition flex items-center gap-1 ${planningTimeMode === 'ETA_ETD' ? 'bg-gradient-to-r from-amber-600 to-rose-600 text-white shadow' : 'text-gray-400 hover:text-gray-200'}`}
+                                className={`px-1.5 py-0.5 font-semibold rounded transition flex items-center gap-1 text-[11px] ${planningTimeMode === 'ETA_ETD' ? 'bg-gradient-to-r from-amber-600 to-rose-600 text-white shadow' : 'text-gray-400 hover:text-gray-200'}`}
                             >
                                 <span>🔮</span>
                                 <span>ETA–ETD</span>
                             </button>
                         </div>
 
+                        {planningTimeMode === 'ETA_ETD' && (
+                            <div className="hidden 2xl:flex items-center gap-1.5 px-2 py-0.5 rounded bg-gray-900/90 border border-gray-700/70 text-[10px]" title="Gölge Bar Renk Anlamları: Sarı = Min Çevrim Açığı (ETD−ETA < Min), Pembe = 7 Yıllık Sefer Gecikme Alışkanlığı">
+                                <span className="inline-flex items-center gap-1 text-amber-300"><span className="w-2 h-2 rounded-sm bg-amber-400/80 inline-block" />Min Çevrim</span>
+                                <span className="text-gray-600">|</span>
+                                <span className="inline-flex items-center gap-1 text-rose-300"><span className="w-2 h-2 rounded-sm bg-rose-400/80 inline-block" />Gecikme</span>
+                            </div>
+                        )}
+
                         {/* Compact Undo / Redo / Reset / Commit */}
                         <div className="flex items-center bg-gray-900 border border-gray-700/80 rounded-md p-0.5">
                             <button
                                 onClick={handleUndo}
                                 disabled={undoStack.length === 0}
-                                className="px-2 py-0.5 font-semibold rounded text-gray-200 hover:bg-gray-800 disabled:opacity-30 disabled:cursor-not-allowed transition flex items-center gap-1"
+                                className="px-1.5 py-0.5 font-semibold rounded text-gray-200 hover:bg-gray-800 disabled:opacity-30 disabled:cursor-not-allowed transition flex items-center gap-0.5"
                                 title="Geri Al (Ctrl+Z)"
                             >
                                 <span>↶</span>
@@ -2453,7 +2461,7 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                             <button
                                 onClick={handleRedo}
                                 disabled={redoStack.length === 0}
-                                className="px-2 py-0.5 font-semibold rounded text-gray-200 hover:bg-gray-800 disabled:opacity-30 disabled:cursor-not-allowed transition border-l border-gray-800"
+                                className="px-1.5 py-0.5 font-semibold rounded text-gray-200 hover:bg-gray-800 disabled:opacity-30 disabled:cursor-not-allowed transition border-l border-gray-800"
                                 title="Yinele (Ctrl+Y)"
                             >
                                 ↷
@@ -2461,7 +2469,7 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                             <button
                                 onClick={handleResetChanges}
                                 disabled={undoStack.length === 0 && !committedFlights}
-                                className="px-2 py-0.5 font-semibold rounded text-rose-300 hover:bg-rose-950/60 disabled:opacity-30 disabled:cursor-not-allowed transition border-l border-gray-800"
+                                className="px-1.5 py-0.5 font-semibold rounded text-rose-300 hover:bg-rose-950/60 disabled:opacity-30 disabled:cursor-not-allowed transition border-l border-gray-800"
                                 title="Değişiklikleri İptal Et"
                             >
                                 ↺
@@ -2472,11 +2480,11 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                                 className="px-2 py-0.5 font-semibold rounded bg-blue-600/80 hover:bg-blue-500 text-white disabled:opacity-30 transition ml-0.5"
                                 title="Planlamayı Onayla (Commit)"
                             >
-                                💾 Onayla
+                                💾
                             </button>
                         </div>
 
-                        <div className="hidden lg:flex items-center bg-gray-900 border border-gray-700/80 rounded-md p-0.5">
+                        <div className="hidden 2xl:flex items-center bg-gray-900 border border-gray-700/80 rounded-md p-0.5">
                             <button
                                 onClick={handleUnlink}
                                 disabled={!canUnlink}
@@ -2496,8 +2504,8 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                         </div>
                     </div>
 
-                    {/* Right: Dom/Int Filter + Search + Day Pills + 24h Date Range */}
-                    <div className="flex items-center gap-2">
+                    {/* Right: Dom/Int Filter + Search + Day Pills + Compact 24h Date Range */}
+                    <div className="flex items-center gap-1.5 flex-shrink-0">
                         <div className="flex items-center bg-gray-900 border border-gray-700/80 rounded-md p-0.5">
                             <button
                                 onClick={() => setActiveFilter('all')}
@@ -2507,33 +2515,33 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                             </button>
                             <button
                                 onClick={() => setActiveFilter('domestic')}
-                                className={`px-2 py-0.5 font-semibold rounded transition ${activeFilter === 'domestic' ? 'bg-red-800 text-white' : 'text-gray-400 hover:text-gray-200'}`}
+                                className={`px-1.5 py-0.5 font-semibold rounded transition ${activeFilter === 'domestic' ? 'bg-red-800 text-white' : 'text-gray-400 hover:text-gray-200'}`}
                             >
                                 İç
                             </button>
                             <button
                                 onClick={() => setActiveFilter('international')}
-                                className={`px-2 py-0.5 font-semibold rounded transition ${activeFilter === 'international' ? 'bg-blue-800 text-white' : 'text-gray-400 hover:text-gray-200'}`}
+                                className={`px-1.5 py-0.5 font-semibold rounded transition ${activeFilter === 'international' ? 'bg-blue-800 text-white' : 'text-gray-400 hover:text-gray-200'}`}
                             >
                                 Dış
                             </button>
                         </div>
 
                         <div className="relative">
-                            <svg className="w-3.5 h-3.5 text-gray-400 absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <svg className="w-3 h-3 text-gray-400 absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                             </svg>
                             <input
                                 type="text"
-                                placeholder="Uçuş Ara..."
+                                placeholder="Ara..."
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
-                                className="bg-gray-900 border border-gray-700 rounded-md pl-7 pr-2 py-1 text-white placeholder-gray-500 focus:border-blue-500 w-36 xl:w-44 text-xs outline-none transition"
+                                className="bg-gray-900 border border-gray-700 rounded-md pl-6 pr-2 py-1 text-white placeholder-gray-500 focus:border-blue-500 w-24 xl:w-32 text-xs outline-none transition"
                             />
                         </div>
 
                         {availableDays.length > 1 && (
-                            <div className="hidden xl:flex items-center gap-0.5 bg-gray-900 border border-gray-700/80 px-1 py-0.5 rounded-md overflow-x-auto max-w-[200px] scrollbar-none">
+                            <div className="hidden 2xl:flex items-center gap-0.5 bg-gray-900 border border-gray-700/80 px-1 py-0.5 rounded-md overflow-x-auto max-w-[180px] scrollbar-none">
                                 <button
                                     onClick={handleSelectAllRange}
                                     className={`px-1.5 py-0.5 rounded text-[10px] font-semibold transition ${
@@ -2557,7 +2565,7 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                             </div>
                         )}
 
-                        <div className="flex items-center gap-1 bg-gray-900 border border-gray-700/80 px-2 py-0.5 rounded-md">
+                        <div className="flex items-center gap-1 bg-gray-900 border border-gray-700/80 px-1.5 py-0.5 rounded-md">
                             <DateTime24Input
                                 id="start-date"
                                 compact
