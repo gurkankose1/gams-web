@@ -472,7 +472,8 @@ export function calculateBridgeUtilization(
     const ddRatioPct = eligibleCount > 0 ? (domCount / eligibleCount) * 100 : 12.0;
     const long4hPct = eligibleCount > 0 ? (long4hCount / eligibleCount) * 100 : 25.0;
 
-    // Saatlik bakım / kapalılık blokları (sadece köprü stantları)
+    // 15 dakikalık (96 slot/gün) bakım / arıza / downgrade kapalılık blokları (sadece köprü stantları)
+    const slot15Closed = new Array(96).fill(0);
     if (maintenanceBlocks && maintenanceBlocks.length > 0 && startDate && endDate) {
         for (const blk of maintenanceBlocks) {
             if (!blk.parkingPosition || !isContactStand(blk.parkingPosition)) continue;
@@ -481,44 +482,46 @@ export function calculateBridgeUtilization(
             if (bEnd > bStart) {
                 let cur = bStart;
                 while (cur < bEnd) {
-                    const h = new Date(cur).getHours();
-                    const nextHr = cur + (3600000 - (cur % 3600000));
-                    const sliceHrs = (Math.min(bEnd, nextHr) - cur) / 3600000;
-                    hourlyClosed[h] += sliceHrs / daySpan;
-                    cur = nextHr;
+                    const dtCur = new Date(cur);
+                    const q = Math.min(95, Math.floor((dtCur.getHours() * 60 + dtCur.getMinutes()) / 15));
+                    const nextQ = cur + (900000 - (cur % 900000));
+                    const sliceFrac = (Math.min(bEnd, nextQ) - cur) / 900000;
+                    slot15Closed[q] += sliceFrac / daySpan;
+                    cur = nextQ;
                 }
             }
         }
     }
 
-    // 1440 dakikalık işgal dizisinden 24 saatlik ortalama talep (xpbb-web.vercel.app ile birebir aynı!)
-    for (let h = 0; h < 24; h++) {
+    // 1440 dakikalık işgal dizisinden 96 adet 15 dakikalık slot ortalaması (xpbb-web ile birebir aynı!)
+    const slot15Demand = new Array(96).fill(0);
+    for (let q = 0; q < 96; q++) {
         let sumM = 0;
-        for (let m = h * 60; m < (h + 1) * 60; m++) sumM += minDemand[m];
-        hourlyDemand[h] = Math.round(sumM / (60 * daySpan));
+        for (let m = q * 15; m < (q + 1) * 15; m++) sumM += minDemand[m];
+        slot15Demand[q] = sumM / (15 * daySpan);
     }
 
-    // xPBB™ V3.0 (Güncel 113 Nominal Tavan: B10 standalone/B10R, F12 sadece F12L+F12R)
+    // xPBB 15 Dakikalık (96 Slot) Modeli — Güncel 113 Nominal Tavan (B10 & F12) | 296 Eşleşen Gün OLS (R = 0.912)
     const NOMINAL_BRIDGES = 113;
-    let totalDemHrs = 0;
-    let ex114Hrs = 0;
-    let exNetHrs = 0;
-    for (let h = 0; h < 24; h++) {
-        const dem = hourlyDemand[h] || 0;
-        const cl = Math.min(NOMINAL_BRIDGES, hourlyClosed[h] || 0);
-        totalDemHrs += dem;
-        ex114Hrs += Math.max(0, dem - NOMINAL_BRIDGES);
-        exNetHrs += Math.max(0, dem - Math.max(0, NOMINAL_BRIDGES - cl));
+    let totalDem15 = 0;
+    let ex113_15 = 0;
+    let exNet_15 = 0;
+    for (let q = 0; q < 96; q++) {
+        const dem = slot15Demand[q] || 0;
+        const cl = Math.min(NOMINAL_BRIDGES, slot15Closed[q] || 0);
+        totalDem15 += dem;
+        ex113_15 += Math.max(0, dem - NOMINAL_BRIDGES);
+        exNet_15 += Math.max(0, dem - Math.max(0, NOMINAL_BRIDGES - cl));
     }
-    const safeTot = Math.max(1, totalDemHrs);
-    const acSpill114Pct = (ex114Hrs / safeTot) * 100;
-    const acSpillNetPct = (exNetHrs / safeTot) * 100;
-    const acSpillClosurePct = Math.max(0, acSpillNetPct - acSpill114Pct);
+    const safeTot = Math.max(1, totalDem15);
+    const acSpill113Pct = (ex113_15 / safeTot) * 100;
+    const acSpillNetPct = (exNet_15 / safeTot) * 100;
+    const acSpillClosurePct = Math.max(0, acSpillNetPct - acSpill113Pct);
 
-    const penaltySpill = Math.round((0.3971 * acSpill114Pct) * 10) / 10;
-    const penaltyClosure = Math.round((0.3971 * acSpillClosurePct) * 10) / 10;
-    const penaltyLongStay = Math.round((0.1381 * long4hPct) * 10) / 10;
-    const penaltyFleetDom = Math.round((0.1118 * widebodyRatioPct + 0.2318 * ddRatioPct) * 10) / 10;
+    const penaltySpill = Math.round((0.3995 * acSpill113Pct) * 10) / 10;
+    const penaltyClosure = Math.round((0.3995 * acSpillClosurePct) * 10) / 10;
+    const penaltyLongStay = Math.round((0.1172 * long4hPct) * 10) / 10;
+    const penaltyFleetDom = Math.round((0.0191 * widebodyRatioPct + 0.3765 * ddRatioPct) * 10) / 10;
 
     let xpbbPlan = 100.0 - penaltySpill - penaltyLongStay - penaltyFleetDom;
     xpbbPlan = Math.max(65.0, Math.min(99.0, Math.round(xpbbPlan * 10) / 10));
