@@ -5,6 +5,22 @@ export interface FlightHistoryEntry {
 }
 
 export type FlightType = 'turnaround' | 'arrival' | 'departure';
+export type PlanningTimeMode = 'AIBT_AOBT' | 'ETA_ETD';
+
+export interface FlightShadowInfo {
+  /** Shadow 1: Min turnaround gap past ETD in minutes (0 if ETD - ETA >= minTurnaround) */
+  minTurnGapMins: number;
+  /** Historical min turnaround for this Airline + A/C Type (minutes) */
+  minTurnaroundRefMins?: number;
+  /** Shadow 2: Historical avg positive delay (AOBT - ETD) past ETD in minutes */
+  avgDelayMins: number;
+  /** Lookup label for Shadow 2 (e.g. "IRA718 (n=412)" or "IR→IKA (n=850)") */
+  delaySourceLabel?: string;
+  /** Total shadow extension past ETD: max(minTurnGapMins, avgDelayMins) */
+  totalShadowMins: number;
+  /** Whether Shadow 2 exceeds Shadow 1 and both are positive (triggers dashed cut divider) */
+  hasSplitDivider: boolean;
+}
 
 export interface Flight {
   id: string;
@@ -18,6 +34,12 @@ export interface Flight {
   regNo?: string;
   scheduledArrival: Date;
   scheduledDeparture: Date;
+  /** Gerçekleşmiş zamanlar (AIBT / ATA -> AOBT / ATD) — Mod 1 için */
+  actualArrival?: Date;
+  actualDeparture?: Date;
+  /** Canlı öngörü zamanları (ETA / STA -> ETD / STD) — Mod 2 için */
+  estimatedArrival?: Date;
+  estimatedDeparture?: Date;
   parkingPosition: string | null;
   gate: string | null;
   isDomestic: boolean;

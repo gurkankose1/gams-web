@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useDrop } from 'react-dnd';
-import { Flight, ItemTypes, MaintenanceBlock } from '../types.ts';
+import { Flight, ItemTypes, MaintenanceBlock, PlanningTimeMode } from '../types.ts';
 import FlightCard from './FlightCard.tsx';
 import { WIDE_BODY_AIRCRAFT, CONCOURSE_LAYOUT, DOMESTIC_CONCOURSES, INTERNATIONAL_CONCOURSES } from '../constants.ts';
 import { validateFlightPlacement } from '../services/ams-rules.ts';
+import { getFlightShadowInfo } from '../services/shadow-bar-service.ts';
 
 interface TimelineLaneProps {
   laneId: string;
@@ -25,6 +26,7 @@ interface TimelineLaneProps {
   allMaintenanceBlocks?: MaintenanceBlock[];
   onUpdateMaintenanceBlock: (blockId: string, newTimes: { startTime?: Date, endTime?: Date }) => void;
   isSuperSetMode?: boolean;
+  planningTimeMode?: PlanningTimeMode;
 }
 
 const getRelatedMarsPositions = (pos: string): string[] => {
@@ -65,7 +67,8 @@ const TimelineLaneComponent: React.FC<TimelineLaneProps> = ({
     maintenanceBlocks,
     allMaintenanceBlocks,
     onUpdateMaintenanceBlock,
-    isSuperSetMode = false
+    isSuperSetMode = false,
+    planningTimeMode = 'AIBT_AOBT'
 }) => {
     const laneRef = useRef<HTMLDivElement | null>(null);
 
@@ -306,28 +309,113 @@ const TimelineLaneComponent: React.FC<TimelineLaneProps> = ({
                 }
 
 
+                // Hayalet Gölge Çubuğu (Yalnızca ETA-ETD modunda — manuel sürükle-bırakta tamamen serbest / pointer-events-none)
+                const shadow = planningTimeMode === 'ETA_ETD' ? getFlightShadowInfo(flight, planningTimeMode) : null;
+                let shadowEl: React.ReactNode = null;
+                if (shadow && shadow.totalShadowMins > 0 && flightEndMs < viewEndMs) {
+                    const shadowStartMs = flightEndMs;
+                    const shadowEndMs = flightEndMs + shadow.totalShadowMins * 60000;
+                    const visShStart = Math.max(shadowStartMs, viewStartMs);
+                    const visShEnd = Math.min(shadowEndMs, viewEndMs);
+                    if (visShEnd > visShStart) {
+                        const shLeft = ((visShStart - viewStartMs) / totalDurationMs) * 100;
+                        const shWidth = ((visShEnd - visShStart) / totalDurationMs) * 100;
+
+                        if (shadow.hasSplitDivider) {
+                            // Önce Min Turnaround Açığı (Amber), tırtıklı kesik çizgi ile ayrılmış, devamında Gecikme Alışkanlığı (Rose)
+                            const splitRatio = Math.max(5, Math.min(95, (shadow.minTurnGapMins / shadow.totalShadowMins) * 100));
+                            shadowEl = (
+                                <div
+                                    key={`shadow-${flight.id}`}
+                                    className="absolute top-[5px] bottom-[5px] z-[8] pointer-events-none flex rounded-r-md overflow-hidden"
+                                    style={{ left: `${shLeft}%`, width: `${shWidth}%` }}
+                                >
+                                    <div
+                                        className="h-full border-y border-dashed border-amber-400/80 border-r-2 border-r-white/90 flex items-center justify-center overflow-hidden"
+                                        style={{
+                                            width: `${splitRatio}%`,
+                                            backgroundImage: 'repeating-linear-gradient(135deg, rgba(245,158,11,0.34) 0px, rgba(245,158,11,0.34) 5px, rgba(245,158,11,0.12) 5px, rgba(245,158,11,0.12) 10px)'
+                                        }}
+                                    >
+                                        <span className="text-[8px] font-mono font-bold text-amber-200 drop-shadow truncate px-0.5">
+                                            +{shadow.minTurnGapMins}m
+                                        </span>
+                                    </div>
+                                    <div
+                                        className="h-full flex-1 border-y border-r border-dashed border-rose-400/80 rounded-r-md flex items-center justify-center overflow-hidden"
+                                        style={{
+                                            backgroundImage: 'repeating-linear-gradient(135deg, rgba(244,63,94,0.32) 0px, rgba(244,63,94,0.32) 5px, rgba(168,85,247,0.14) 5px, rgba(168,85,247,0.14) 10px)'
+                                        }}
+                                    >
+                                        <span className="text-[8px] font-mono font-bold text-rose-200 drop-shadow truncate px-0.5">
+                                            +{shadow.avgDelayMins}m
+                                        </span>
+                                    </div>
+                                </div>
+                            );
+                        } else if (shadow.minTurnGapMins > 0) {
+                            // Sadece Min Turnaround Açığı (Amber)
+                            shadowEl = (
+                                <div
+                                    key={`shadow-${flight.id}`}
+                                    className="absolute top-[5px] bottom-[5px] z-[8] pointer-events-none rounded-r-md border-y border-r border-dashed border-amber-400/80 flex items-center justify-center overflow-hidden"
+                                    style={{
+                                        left: `${shLeft}%`,
+                                        width: `${shWidth}%`,
+                                        backgroundImage: 'repeating-linear-gradient(135deg, rgba(245,158,11,0.34) 0px, rgba(245,158,11,0.34) 5px, rgba(245,158,11,0.12) 5px, rgba(245,158,11,0.12) 10px)'
+                                    }}
+                                >
+                                    <span className="text-[8px] font-mono font-bold text-amber-200 drop-shadow truncate px-0.5">
+                                        +{shadow.minTurnGapMins}m
+                                    </span>
+                                </div>
+                            );
+                        } else {
+                            // Sadece Sefer Gecikme Alışkanlığı (Rose/Violet)
+                            shadowEl = (
+                                <div
+                                    key={`shadow-${flight.id}`}
+                                    className="absolute top-[5px] bottom-[5px] z-[8] pointer-events-none rounded-r-md border-y border-r border-dashed border-rose-400/80 flex items-center justify-center overflow-hidden"
+                                    style={{
+                                        left: `${shLeft}%`,
+                                        width: `${shWidth}%`,
+                                        backgroundImage: 'repeating-linear-gradient(135deg, rgba(244,63,94,0.32) 0px, rgba(244,63,94,0.32) 5px, rgba(168,85,247,0.14) 5px, rgba(168,85,247,0.14) 10px)'
+                                    }}
+                                >
+                                    <span className="text-[8px] font-mono font-bold text-rose-200 drop-shadow truncate px-0.5">
+                                        +{shadow.avgDelayMins}m
+                                    </span>
+                                </div>
+                            );
+                        }
+                    }
+                }
+
                 return (
-                    <div
-                        key={flight.id}
-                        ref={node => {
-                            if (node) flightElements.current.set(flight.id, node);
-                            else flightElements.current.delete(flight.id);
-                        }}
-                        className="absolute top-[3px] bottom-[3px] rounded-md overflow-hidden z-10 flex items-center"
-                        style={{ left: `${left}%`, width: `${width}%` }}
-                    >
-                        <FlightCard 
-                            flight={flight} 
-                            isPositioned={true} 
-                            isSelected={selectedFlightIds.has(flight.id)} 
-                            onSelect={(e) => onFlightClick(flight.id, e)}
-                            onContextMenu={(e) => onFlightContextMenu(e, flight.id)}
-                            isOverridden={ruleOverrides.has(flight.id)}
-                            isSearched={isSearched}
-                            isHighlighted={isHighlighted || isSearched}
-                            isDimmed={isDimmed && !isSearched}
-                        />
-                    </div>
+                    <React.Fragment key={flight.id}>
+                        {shadowEl}
+                        <div
+                            ref={node => {
+                                if (node) flightElements.current.set(flight.id, node);
+                                else flightElements.current.delete(flight.id);
+                            }}
+                            className="absolute top-[3px] bottom-[3px] rounded-md overflow-hidden z-10 flex items-center"
+                            style={{ left: `${left}%`, width: `${width}%` }}
+                        >
+                            <FlightCard 
+                                flight={flight} 
+                                isPositioned={true} 
+                                isSelected={selectedFlightIds.has(flight.id)} 
+                                onSelect={(e) => onFlightClick(flight.id, e)}
+                                onContextMenu={(e) => onFlightContextMenu(e, flight.id)}
+                                isOverridden={ruleOverrides.has(flight.id)}
+                                isSearched={isSearched}
+                                isHighlighted={isHighlighted || isSearched}
+                                isDimmed={isDimmed && !isSearched}
+                                planningTimeMode={planningTimeMode}
+                            />
+                        </div>
+                    </React.Fragment>
                 );
             })}
         </div>

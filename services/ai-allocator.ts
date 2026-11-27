@@ -1,4 +1,4 @@
-import { Flight, MaintenanceBlock } from '../types.ts';
+import { Flight, MaintenanceBlock, PlanningTimeMode } from '../types.ts';
 import { CONCOURSE_LAYOUT, TURKISH_DOMESTIC_AIRPORTS } from '../constants.ts';
 import { 
     isCargoFlight, 
@@ -13,6 +13,15 @@ import {
 } from './ams-rules.ts';
 import { getFidsPublicationStatus, FidsPublicationStatus } from './fids-service.ts';
 import { calculateRevenue } from './revenue-calculator.ts';
+import { getFlightShadowEndMs } from './shadow-bar-service.ts';
+import {
+    isCloseGateRequiredDeparture,
+    getCloseGateTier,
+    CLOSE_GATE_WIDE_TIER1,
+    CLOSE_GATE_WIDE_TIER2,
+    CLOSE_GATE_WIDE_TIER3,
+    CLOSE_GATE_NARROW_TIER1
+} from './close-gate-rules.ts';
 
 export interface FidsAdvisoryWarning {
     flightId: string;
@@ -34,6 +43,8 @@ export interface AiAllocationOptions {
     filterStart?: Date;
     filterEnd?: Date;
     referenceTime?: Date;
+    /** Planlama Zaman Modu: Gerçekleşmiş (AIBT_AOBT) veya Canlı Öngörü (ETA_ETD + Gölge Çubukları) */
+    planningMode?: PlanningTimeMode;
 }
 
 export interface BridgeUtilizationStats {
@@ -800,6 +811,8 @@ export interface AiAllocationResult {
     fidsWarnings?: FidsAdvisoryWarning[];
     fidsLockedCount?: number;
     timeFilteredFlightCount?: number;
+    shadowAvoidedCount?: number;
+    closeGateOptimizedCount?: number;
 }
 
 /**
@@ -3563,8 +3576,272 @@ export function runRevenueMaximizationSwapPass(
         }
     }
 
+    // -------------------------------------------------------------------------
+    // PASS H (Yalnızca ETA-ETD Modu): Hayalet Gölge Çubuğu Soft-Kaçınma Pass'i
+    // - Gölge, başka bir uçağın slot gövdesiyle çakışıyorsa temiz köprü alternatifi arar.
+    // - Gölgeler üst üste binebilir; hiç temiz alternatif kalmazsa köprü oranını koruyarak yerinde bırakır.
+    // -------------------------------------------------------------------------
+    const activePlanningMode: PlanningTimeMode = options?.planningMode || 'AIBT_AOBT';
+    let shadowAvoidedCount = 0;
+    let closeGateOptimizedCount = 0;
+
+    const rebuildWorkingTopology = (): { topo: Map<string, StandSchedule>; byId: Map<string, Flight> } => {
+        const topo = buildStandTopology(maintenanceBlocks);
+        const byId = new Map<string, Flight>();
+        for (const f of workingFlights) {
+            byId.set(f.id, f);
+            if (f.parkingPosition) {
+                const s = topo.get(f.parkingPosition);
+                if (s) placeOnStand(s, f.scheduledArrival.getTime(), f.scheduledDeparture.getTime(), f.id);
+            }
+        }
+        return { topo, byId };
+    };
+
+    const hasShadowBodyCollision = (
+        topo: Map<string, StandSchedule>,
+        byId: Map<string, Flight>,
+        standName: string,
+        flight: Flight,
+        ignoreIds: Set<string>
+    ): boolean => {
+        if (activePlanningMode !== 'ETA_ETD') return false;
+        const sched = topo.get(standName);
+        if (!sched) return false;
+        const checkStands: string[] = [standName];
+        if (sched.marsCenterStand) checkStands.push(sched.marsCenterStand);
+        if (sched.marsSubStands) checkStands.push(...sched.marsSubStands);
+
+        const fStart = flight.scheduledArrival.getTime();
+        const fEnd = flight.scheduledDeparture.getTime();
+        const fShEnd = getFlightShadowEndMs(flight, activePlanningMode);
+
+        for (const st of checkStands) {
+            const stSched = topo.get(st);
+            if (!stSched) continue;
+            for (const iv of stSched.intervals) {
+                if (iv.flightId === flight.id || ignoreIds.has(iv.flightId) || iv.flightId.startsWith('MAINT_')) continue;
+                const other = byId.get(iv.flightId);
+                if (!other) continue;
+                const oStart = other.scheduledArrival.getTime();
+                const oEnd = other.scheduledDeparture.getTime();
+                const oShEnd = getFlightShadowEndMs(other, activePlanningMode);
+
+                // Uçuşun gölgesi (fEnd..fShEnd) diğerinin gövdesine (oStart..oEnd) değiyor mu?
+                const myShadowHitsOther = fShEnd > fEnd && fShEnd > oStart && fEnd < oEnd;
+                // Diğerinin gölgesi (oEnd..oShEnd) bu uçuşun gövdesine (fStart..fEnd) değiyor mu?
+                const otherShadowHitsMe = oShEnd > oEnd && oShEnd > fStart && oEnd < fEnd;
+                if (myShadowHitsOther || otherShadowHitsMe) return true;
+            }
+        }
+        return false;
+    };
+
+    const isUnlockedForRelocation = (f: Flight): boolean => {
+        if (isOperationalLockedFlight(f)) return false;
+        if (isFlightLockedByFidsOrTime(f, options).isLocked) return false;
+        return true;
+    };
+
+    if (activePlanningMode === 'ETA_ETD') {
+        const { topo: shTopo, byId } = rebuildWorkingTopology();
+        for (let pass = 0; pass < 3; pass++) {
+            let movedAny = false;
+            const bridgeList = workingFlights.filter(f =>
+                f.parkingPosition && isContactStand(f.parkingPosition) && isUnlockedForRelocation(f)
+            );
+            for (const f of bridgeList) {
+                const curStand = f.parkingPosition!;
+                if (!hasShadowBodyCollision(shTopo, byId, curStand, f, new Set())) continue;
+
+                const allowedConc = getAllowedBridgeConcourses(f);
+                const ignoreSelf = new Set([f.id]);
+                const fArr = f.scheduledArrival.getTime();
+                const fDep = f.scheduledDeparture.getTime();
+                const fCat = f.acCategory || getAircraftCategory(f.aircraftType);
+                const fWide = fCat === 'D' || fCat === 'E' || fCat === 'F';
+
+                // 1. Doğrudan gölge-temiz boş köprü standı ara
+                let bestCleanStand: string | null = null;
+                let bestCleanScore = -Infinity;
+                for (const conc of allowedConc) {
+                    for (const cand of (CONCOURSE_LAYOUT[conc] || [])) {
+                        if (cand === curStand) continue;
+                        if (!canFitIgnoringIds(shTopo, cand, f, ignoreSelf, maintenanceBlocks)) continue;
+                        if (hasShadowBodyCollision(shTopo, byId, cand, f, ignoreSelf)) continue;
+
+                        const candSched = shTopo.get(cand);
+                        let sc = 100;
+                        if (isCloseGateRequiredDeparture(f)) {
+                            const tier = getCloseGateTier(cand, fWide);
+                            if (tier === 1) sc += 300;
+                            else if (tier === 2) sc += 180;
+                            else if (tier === 3) sc += 80;
+                        }
+                        if (fWide && candSched && !candSched.isMarsCenter) sc += 120;
+                        if (!fWide && candSched && !candSched.isMarsSub && !isStandWidebodyCompatible(cand)) sc += 80;
+                        if (sc > bestCleanScore) {
+                            bestCleanScore = sc;
+                            bestCleanStand = cand;
+                        }
+                    }
+                }
+
+                if (bestCleanStand) {
+                    const oldSched = shTopo.get(curStand);
+                    if (oldSched) oldSched.intervals = oldSched.intervals.filter(iv => iv.flightId !== f.id);
+                    const newSched = shTopo.get(bestCleanStand)!;
+                    placeOnStand(newSched, fArr, fDep, f.id);
+                    f.parkingPosition = bestCleanStand;
+                    f.gate = bestCleanStand;
+                    shadowAvoidedCount++;
+                    movedAny = true;
+                }
+            }
+            if (!movedAny) break;
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // PASS I: ABD, İngiltere & Kanada Gidişleri — Close Gate Soft Öncelik Pass'i
+    // - Geniş Gövde: 1) D7-D15  2) D6, D16, D17  3) B4, B10, B12, A7  4) Diğer köprüler
+    // - Dar Gövde:   1) A2,A3,A5,A6,A11,B1,B3,B5,B7,D5,F1,F3,F5,F7,F8 (MARS L/R dahil)  2) Diğer köprüler
+    // - Altın Kural: Köprü kullanım oranını ASLA düşürmez, gölge/tampon çakışması yaratmaz!
+    // -------------------------------------------------------------------------
+    {
+        const { topo: cgTopo, byId } = rebuildWorkingTopology();
+        const cgCandidates = workingFlights.filter(f =>
+            f.parkingPosition &&
+            isContactStand(f.parkingPosition) &&
+            isCloseGateRequiredDeparture(f) &&
+            isUnlockedForRelocation(f)
+        );
+
+        // Geniş gövdelere önce Close Gate hakkı ver
+        cgCandidates.sort((a, b) => {
+            const catA = a.acCategory || getAircraftCategory(a.aircraftType);
+            const catB = b.acCategory || getAircraftCategory(b.aircraftType);
+            const wA = (catA === 'D' || catA === 'E' || catA === 'F') ? 1 : 0;
+            const wB = (catB === 'D' || catB === 'E' || catB === 'F') ? 1 : 0;
+            if (wA !== wB) return wB - wA;
+            return a.scheduledArrival.getTime() - b.scheduledArrival.getTime();
+        });
+
+        const standConcourseMap = new Map<string, string>();
+        for (const [cName, list] of Object.entries(CONCOURSE_LAYOUT)) {
+            for (const s of list) standConcourseMap.set(s, cName);
+        }
+
+        for (const f of cgCandidates) {
+            const curStand = f.parkingPosition!;
+            const fCat = f.acCategory || getAircraftCategory(f.aircraftType);
+            const fWide = fCat === 'D' || fCat === 'E' || fCat === 'F';
+            const curTier = getCloseGateTier(curStand, fWide);
+            if (curTier === 1) continue; // Zaten 1. öncelikli Close Gate'te!
+
+            const allowedConc = new Set(getAllowedBridgeConcourses(f));
+            const betterStands: string[] = [];
+            if (fWide) {
+                betterStands.push(...Array.from(CLOSE_GATE_WIDE_TIER1));
+                if (curTier === 0 || curTier > 2) betterStands.push(...Array.from(CLOSE_GATE_WIDE_TIER2));
+                if (curTier === 0) betterStands.push(...Array.from(CLOSE_GATE_WIDE_TIER3));
+            } else {
+                betterStands.push(...Array.from(CLOSE_GATE_NARROW_TIER1));
+            }
+
+            const fArr = f.scheduledArrival.getTime();
+            const fDep = f.scheduledDeparture.getTime();
+            const ignoreSelf = new Set([f.id]);
+            let placedBetter = false;
+
+            // 1. Öncelik: Boş uygun Close Gate'e doğrudan taşı
+            for (const cand of betterStands) {
+                if (cand === curStand) continue;
+                const candConc = standConcourseMap.get(cand);
+                if (!candConc || !allowedConc.has(candConc)) continue;
+                if (!canFitIgnoringIds(cgTopo, cand, f, ignoreSelf, maintenanceBlocks)) continue;
+                if (hasShadowBodyCollision(cgTopo, byId, cand, f, ignoreSelf)) continue;
+
+                const oldSched = cgTopo.get(curStand);
+                if (oldSched) oldSched.intervals = oldSched.intervals.filter(iv => iv.flightId !== f.id);
+                const newSched = cgTopo.get(cand)!;
+                placeOnStand(newSched, fArr, fDep, f.id);
+                f.parkingPosition = cand;
+                f.gate = cand;
+                closeGateOptimizedCount++;
+                placedBetter = true;
+                break;
+            }
+
+            // 2. Öncelik: Köprü oranını bozmadan (1-1 takas) Close Gate'teki normal bir uçakla yer değiştir
+            if (!placedBetter) {
+                const curConc = standConcourseMap.get(curStand);
+                for (const cand of betterStands) {
+                    if (cand === curStand) continue;
+                    const candConc = standConcourseMap.get(cand);
+                    if (!candConc || !allowedConc.has(candConc)) continue;
+                    const candSched = cgTopo.get(cand);
+                    if (!candSched) continue;
+
+                    // cand üzerinde (MARS dahil) f ile çakışan tüm uçuşları bul
+                    const checkStands = [cand];
+                    if (candSched.marsCenterStand) checkStands.push(candSched.marsCenterStand);
+                    if (candSched.marsSubStands) checkStands.push(...candSched.marsSubStands);
+
+                    const blockingIds = new Set<string>();
+                    let hasMaintBlock = false;
+                    for (const st of checkStands) {
+                        const stSched = cgTopo.get(st);
+                        if (!stSched) continue;
+                        for (const iv of stSched.intervals) {
+                            if (iv.flightId === f.id) continue;
+                            if (fArr < iv.end && fDep > iv.start) {
+                                if (iv.flightId.startsWith('MAINT_')) { hasMaintBlock = true; break; }
+                                blockingIds.add(iv.flightId);
+                            }
+                        }
+                        if (hasMaintBlock) break;
+                    }
+                    if (hasMaintBlock || blockingIds.size !== 1) continue;
+
+                    const blockerId = Array.from(blockingIds)[0];
+                    const blocker = byId.get(blockerId);
+                    if (!blocker || !blocker.parkingPosition) continue;
+                    if (!isUnlockedForRelocation(blocker)) continue;
+                    if (isCloseGateRequiredDeparture(blocker)) continue; // Başka ABD/UK/CA uçağını yerinden etme!
+
+                    const blockerOrigStand = blocker.parkingPosition;
+                    // blocker'ın eski f standına (curStand) sığıp sığmadığını kontrol et
+                    if (!curConc || !getAllowedBridgeConcourses(blocker).includes(curConc)) continue;
+                    const ignorePair = new Set([f.id, blocker.id]);
+                    if (!canFitIgnoringIds(cgTopo, curStand, blocker, ignorePair, maintenanceBlocks)) continue;
+                    if (!canFitIgnoringIds(cgTopo, cand, f, ignorePair, maintenanceBlocks)) continue;
+                    if (hasShadowBodyCollision(cgTopo, byId, curStand, blocker, ignorePair)) continue;
+                    if (hasShadowBodyCollision(cgTopo, byId, cand, f, ignorePair)) continue;
+
+                    // 1-1 SIFIR KAYIPLI CLOSE GATE TAKASI!
+                    const fOldSched = cgTopo.get(curStand);
+                    const bOldSched = cgTopo.get(blockerOrigStand);
+                    if (fOldSched) fOldSched.intervals = fOldSched.intervals.filter(iv => iv.flightId !== f.id);
+                    if (bOldSched) bOldSched.intervals = bOldSched.intervals.filter(iv => iv.flightId !== blocker.id);
+
+                    placeOnStand(cgTopo.get(cand)!, fArr, fDep, f.id);
+                    placeOnStand(cgTopo.get(curStand)!, blocker.scheduledArrival.getTime(), blocker.scheduledDeparture.getTime(), blocker.id);
+
+                    f.parkingPosition = cand;
+                    f.gate = cand;
+                    blocker.parkingPosition = curStand;
+                    blocker.gate = curStand;
+                    closeGateOptimizedCount++;
+                    placedBetter = true;
+                    break;
+                }
+            }
+        }
+    }
+
     // Son köprü kullanım istatistiklerini hesapla
-    const finalStats = calculateBridgeUtilization(workingFlights, startDate, endDate);
+    const finalStats = calculateBridgeUtilization(workingFlights, startDate, endDate, maintenanceBlocks);
     const finalBridgeCount = workingFlights.filter(f => f.parkingPosition && isContactStand(f.parkingPosition)).length;
     const finalRevenueEur = Math.round(calcTotalRev(workingFlights));
     const netRevenueGainEur = Math.max(0, finalRevenueEur - initialRevenueEur);
@@ -3598,6 +3875,8 @@ export function runRevenueMaximizationSwapPass(
         revenueSwapSummary: revenueSummary,
         fidsWarnings: phase1Result.fidsWarnings,
         fidsLockedCount: phase1Result.fidsLockedCount,
-        timeFilteredFlightCount: phase1Result.timeFilteredFlightCount
+        timeFilteredFlightCount: phase1Result.timeFilteredFlightCount,
+        shadowAvoidedCount,
+        closeGateOptimizedCount
     };
 }

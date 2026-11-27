@@ -1,9 +1,11 @@
 import React, { useMemo, useEffect, useRef } from 'react';
 import { useDrag } from 'react-dnd';
 import { getEmptyImage } from 'react-dnd-html5-backend';
-import { Flight, ItemTypes } from '../types.ts';
+import { Flight, ItemTypes, PlanningTimeMode } from '../types.ts';
 import { WIDE_BODY_AIRCRAFT, AIRLINE_COLORS } from '../constants.ts';
 import { calculateRevenue } from '../services/revenue-calculator.ts';
+import { getFlightShadowInfo } from '../services/shadow-bar-service.ts';
+import { isCloseGateRequiredDeparture } from '../services/close-gate-rules.ts';
 
 interface FlightCardProps {
   flight: Flight;
@@ -15,6 +17,7 @@ interface FlightCardProps {
   isHighlighted?: boolean;
   isDimmed?: boolean;
   isSearched?: boolean;
+  planningTimeMode?: PlanningTimeMode;
 }
 
 export const isFlightUnregistered = (flight: Flight): boolean => {
@@ -53,7 +56,7 @@ const getFlightDisplayText = (flight: Flight): string => {
     return `${erPrefix}${flightNumText}${typeSuffix}${parkingInfo}${gateInfo}`;
 }
 
-const generateTooltipText = (flight: Flight, isOverridden: boolean): string => {
+const generateTooltipText = (flight: Flight, isOverridden: boolean, planningTimeMode: PlanningTimeMode = 'AIBT_AOBT'): string => {
     const timeFormatOptions: Intl.DateTimeFormatOptions = {
         hour: '2-digit',
         minute: '2-digit',
@@ -95,6 +98,24 @@ const generateTooltipText = (flight: Flight, isOverridden: boolean): string => {
     } else {
         tooltip += `??? -> ${flight.destination}\n`;
         tooltip += `Departure Time: ${flight.scheduledDeparture.toLocaleTimeString('tr-TR', timeFormatOptions)}\n`;
+    }
+
+    if (isCloseGateRequiredDeparture(flight)) {
+        tooltip += `🛡️ [CLOSE GATE TERCİHİ: ABD / İNGİLTERE / KANADA GİDİŞİ]\n`;
+    }
+    if (planningTimeMode === 'ETA_ETD') {
+        const sh = getFlightShadowInfo(flight, planningTimeMode);
+        if (sh.totalShadowMins > 0 || sh.minTurnaroundRefMins) {
+            tooltip += `\n--- 👻 HAYALET GÖLGE ÇUBUĞU (7 Yıllık Veri • ETA-ETD) ---`;
+            if (sh.minTurnaroundRefMins) {
+                tooltip += `\n• Min Çevrim (${flight.airline} ${flight.aircraftType}): ${sh.minTurnaroundRefMins} dk${sh.minTurnGapMins > 0 ? ` → +${sh.minTurnGapMins} dk açık` : ' (yeterli)'}`;
+            }
+            if (sh.avgDelayMins > 0) {
+                tooltip += `\n• Gecikme Alışkanlığı (${sh.delaySourceLabel}): +${sh.avgDelayMins} dk`;
+            }
+            tooltip += `\n• Toplam Gölge Uzantısı: +${sh.totalShadowMins} dk`;
+            tooltip += `\n---------------------------------\n`;
+        }
     }
 
     const revenue = calculateRevenue(flight);
@@ -161,7 +182,8 @@ const FlightCard: React.FC<FlightCardProps> = ({
     onContextMenu,
     isHighlighted = false,
     isDimmed = false,
-    isSearched = false
+    isSearched = false,
+    planningTimeMode = 'AIBT_AOBT'
 }) => {
   const cardElementRef = useRef<HTMLDivElement | null>(null);
 
@@ -246,7 +268,8 @@ const FlightCard: React.FC<FlightCardProps> = ({
   };
 
 
-  const tooltipText = useMemo(() => generateTooltipText(flight, isOverridden), [flight, isOverridden]);
+  const tooltipText = useMemo(() => generateTooltipText(flight, isOverridden, planningTimeMode), [flight, isOverridden, planningTimeMode]);
+  const isCloseGateFlight = useMemo(() => isCloseGateRequiredDeparture(flight), [flight]);
   const displayText = useMemo(() => getFlightDisplayText(flight), [flight]);
   
   const { startDisplay, endDisplay } = useMemo(() => {
@@ -300,6 +323,7 @@ const FlightCard: React.FC<FlightCardProps> = ({
         <span className="w-4 text-left flex-shrink-0">{startDisplay}</span>
         <span className="flex-grow text-center truncate px-1">
           {flight.isOperationalLocked && <span className="text-amber-400 mr-1 font-black" title="Operasyonel Olarak Sabitlendi (AOG / Towing / Geliş-Gidiş Farklı Stand)">🔒</span>}
+          {isCloseGateFlight && <span className="text-sky-300 mr-1" title="ABD / İngiltere / Kanada Close Gate Tercihli Sefer">🛡️</span>}
           {flight.isSuperSet && <span className="text-amber-300 mr-1 font-black" title="Super Set (Destinasyon Kuralı Askıda)">⚡</span>}
           {displayText}
         </span>

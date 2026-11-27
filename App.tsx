@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef, useLayoutEffect } from 'react';
 import * as XLSX from 'xlsx';
-import { Flight, FlightHistoryEntry, MaintenanceBlock } from './types.ts';
+import { Flight, FlightHistoryEntry, MaintenanceBlock, PlanningTimeMode } from './types.ts';
 import { PARKING_POSITIONS, WIDE_BODY_AIRCRAFT, FLIGHT_CARD_HEIGHT, FLIGHT_CARD_MARGIN, TURKISH_DOMESTIC_AIRPORTS, CONCOURSE_LAYOUT, MAX_INITIAL_POOL_TRACKS, SORTED_PARKING_POSITIONS, GATES } from './constants.ts';
 import FlightPool from './components/FlightPool.tsx';
 import { TimelineHeader, TimelineLane, CurrentTimeIndicator, ConcourseOccupancyBar } from './components/Timeline.tsx';
@@ -162,6 +162,9 @@ const parseTurnaroundDataWithMapping = (rawData: any[], mapping: Mapping, startD
         let rawArrDate = onBlock || ata || eta || sta || mappedArr;
         let rawDepDate = offBlock || atd || etd || std || mappedDep;
 
+        let estArrDate = eta || sta || onBlock || ata || mappedArr;
+        let estDepDate = etd || std || offBlock || atd || mappedDep;
+
         let timeSource: 'BLOCK' | 'ACTUAL' | 'SCHEDULED' = 'SCHEDULED';
         if (onBlock && offBlock) timeSource = 'BLOCK';
         else if (ata && atd) timeSource = 'ACTUAL';
@@ -169,6 +172,8 @@ const parseTurnaroundDataWithMapping = (rawData: any[], mapping: Mapping, startD
         // Filter out 1899 zero-dates
         if (rawArrDate && rawArrDate.getFullYear() < 1970) rawArrDate = null;
         if (rawDepDate && rawDepDate.getFullYear() < 1970) rawDepDate = null;
+        if (estArrDate && estArrDate.getFullYear() < 1970) estArrDate = null;
+        if (estDepDate && estDepDate.getFullYear() < 1970) estDepDate = null;
 
         // Check for DX / Cancelled Flight status across BOTH Arrival and Departure status/remark columns
         const isCancelledStr = (val: any) => {
@@ -277,6 +282,11 @@ const parseTurnaroundDataWithMapping = (rawData: any[], mapping: Mapping, startD
             if (departure < arrival) {
                 departure.setDate(departure.getDate() + 1);
             }
+            const estArr = estArrDate ? new Date(estArrDate.getTime()) : new Date(arrival.getTime());
+            const estDep = estDepDate ? new Date(estDepDate.getTime()) : new Date(departure.getTime());
+            if (estDep < estArr) {
+                estDep.setDate(estDep.getDate() + 1);
+            }
 
             const baseFlightData = {
                 airline: airlineCode,
@@ -291,6 +301,10 @@ const parseTurnaroundDataWithMapping = (rawData: any[], mapping: Mapping, startD
                 destination,
                 scheduledArrival: arrival,
                 scheduledDeparture: departure,
+                actualArrival: new Date(arrival.getTime()),
+                actualDeparture: new Date(departure.getTime()),
+                estimatedArrival: estArr,
+                estimatedDeparture: estDep,
                 isDomestic: isArrDom && isDepDom,
                 arrivalIsDomestic: isArrDom,
                 departureIsDomestic: isDepDom,
@@ -734,6 +748,7 @@ const App: React.FC<{ user: User }> = ({ user }) => {
     const [isMaintenanceModalOpen, setMaintenanceModalOpen] = useState(false);
     const [isUniversalXpbbOpen, setIsUniversalXpbbOpen] = useState(false);
     const [openToolbarMenu, setOpenToolbarMenu] = useState<'maintenance' | 'tools' | null>(null);
+    const [planningTimeMode, setPlanningTimeMode] = useState<PlanningTimeMode>('AIBT_AOBT');
     const [isMaintenanceManagementModalOpen, setMaintenanceManagementModalOpen] = useState(false);
     const [isMaintenanceImportModalOpen, setMaintenanceImportModalOpen] = useState(false);
     const [isAdminPanelOpen, setAdminPanelOpen] = useState(false);
@@ -1036,19 +1051,78 @@ const App: React.FC<{ user: User }> = ({ user }) => {
         setTimeout(() => setAllocationMessage(null), 5000);
     }, [flights, currentUser.username, maintenanceBlocks, gateList]);
 
+    const handleSwitchPlanningTimeMode = useCallback((nextMode: PlanningTimeMode) => {
+        if (nextMode === planningTimeMode) return;
+        setPlanningTimeMode(nextMode);
+
+        if (flights.length > 0) {
+            const switchedFlights = flights.map(f => {
+                const raw = f.raw_data || {};
+                const parseSafe = (v: any) => {
+                    const d = combineDateAndTime(null, v, startDate);
+                    return d && d.getFullYear() >= 1970 ? d : null;
+                };
+
+                const actArr = f.actualArrival
+                    ? new Date(f.actualArrival.getTime())
+                    : (parseSafe(raw['On Block'] || raw['AIBT']) || parseSafe(raw['ATA'] || raw['ALDT']) || f.scheduledArrival);
+                const actDep = f.actualDeparture
+                    ? new Date(f.actualDeparture.getTime())
+                    : (parseSafe(raw['Off Block'] || raw['AOBT']) || parseSafe(raw['ATD'] || raw['ATOT']) || f.scheduledDeparture);
+
+                const estArr = f.estimatedArrival
+                    ? new Date(f.estimatedArrival.getTime())
+                    : (parseSafe(raw['ETA']) || parseSafe(raw['STA']) || actArr);
+                const estDep = f.estimatedDeparture
+                    ? new Date(f.estimatedDeparture.getTime())
+                    : (parseSafe(raw['ETD']) || parseSafe(raw['STD']) || actDep);
+
+                let nextArr = nextMode === 'ETA_ETD' ? new Date(estArr.getTime()) : new Date(actArr.getTime());
+                let nextDep = nextMode === 'ETA_ETD' ? new Date(estDep.getTime()) : new Date(actDep.getTime());
+
+                if (f.type === 'arrival') {
+                    nextDep = new Date(nextArr.getTime() + 90 * 60000);
+                } else if (f.type === 'departure') {
+                    nextArr = new Date(nextDep.getTime() - 90 * 60000);
+                } else if (nextDep <= nextArr) {
+                    nextDep = new Date(nextArr.getTime() + 45 * 60000);
+                }
+
+                return {
+                    ...f,
+                    actualArrival: actArr,
+                    actualDeparture: actDep,
+                    estimatedArrival: estArr,
+                    estimatedDeparture: estDep,
+                    scheduledArrival: nextArr,
+                    scheduledDeparture: nextDep,
+                };
+            });
+            updateDatabase({ flights: switchedFlights, maintenanceBlocks, gates: gateList });
+        }
+
+        setAllocationMessage(
+            nextMode === 'ETA_ETD'
+                ? '🔮 Canlı Öngörü Modu (ETA–ETD) Aktif: 7 Yıllık Hayalet Gölge Çubukları (Min Çevrim + Gecikme Alışkanlığı) gösteriliyor ve AI planlamada dikkate alınıyor.'
+                : '📊 Gerçekleşmiş Mod (AIBT–AOBT) Aktif: Slotlar gerçekleşen takoz saatlerine (On Block – Off Block) döndürüldü.'
+        );
+        setTimeout(() => setAllocationMessage(null), 6000);
+    }, [planningTimeMode, flights, startDate, maintenanceBlocks, gateList]);
+
     const handleRunAiAllocation = useCallback((options?: AiAllocationOptions) => {
         if (flights.length === 0) return;
         setIsAiAllocating(true);
 
         setTimeout(() => {
             try {
-                const initialStats = calculateBridgeUtilization(flights, startDate, endDate);
-                const allocResult = runAiBridgeAllocation(flights, startDate, endDate, maintenanceBlocks, options);
+                const effectiveOptions: AiAllocationOptions = { ...options, planningMode: planningTimeMode };
+                const initialStats = calculateBridgeUtilization(flights, startDate, endDate, maintenanceBlocks);
+                const allocResult = runAiBridgeAllocation(flights, startDate, endDate, maintenanceBlocks, effectiveOptions);
                 let newFlights = allocResult.flights;
                 let stats = allocResult.stats;
                 let totalSwapsPerformed = allocResult.totalSwapsPerformed;
                 let netFlightsGained = allocResult.netFlightsGained;
-                const { swapDetails, gapFillsPerformed, bufferSmoothedCount, revenueSwapSummary, fidsWarnings, fidsLockedCount, timeFilteredFlightCount } = allocResult;
+                const { swapDetails, gapFillsPerformed, bufferSmoothedCount, revenueSwapSummary, fidsWarnings, fidsLockedCount, timeFilteredFlightCount, shadowAvoidedCount, closeGateOptimizedCount } = allocResult;
 
                 // Otomatik Co-Pilot Fırsat Taraması ve Güvenli Yakınsama Döngüsü (Tek Butonda Tam Birleşim)
                 const winStart = startDate.getTime() - 12 * 3600000;
@@ -1183,7 +1257,10 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                 }
 
                 const smoothMsg = (bufferSmoothedCount && bufferSmoothedCount > 0) ? `, 🛡️ ${bufferSmoothedCount} Tampon Dengelendi` : '';
-                setAllocationMessage(`⚡ AI Skor & Gelir Takası Tamamlandı: %${stats.bridgeRate.toFixed(1)} Köprü Oranı (${stats.bridgeAssignedCount} / ${stats.eligibleFlightsCount} Yolcu Körükte${revGainMsg}${smoothMsg}${fidsMsg})`);
+                const shadowMsg = (shadowAvoidedCount && shadowAvoidedCount > 0) ? `, 👻 ${shadowAvoidedCount} Gölge Çakışması Çözüldü` : '';
+                const closeGateMsg = (closeGateOptimizedCount && closeGateOptimizedCount > 0) ? `, 🛂 ${closeGateOptimizedCount} ABD/UK/CA Close Gate` : '';
+                const modeLabel = planningTimeMode === 'ETA_ETD' ? ' [ETA–ETD]' : ' [AIBT–AOBT]';
+                setAllocationMessage(`⚡ AI Skor & Gelir Takası${modeLabel}: %${stats.bridgeRate.toFixed(1)} Köprü (${stats.bridgeAssignedCount}/${stats.eligibleFlightsCount}${revGainMsg}${smoothMsg}${shadowMsg}${closeGateMsg}${fidsMsg})`);
                 setTimeout(() => setAllocationMessage(null), 8000);
 
                 // Open AI Report Card Modal
@@ -1208,7 +1285,7 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                 setIsAiAllocating(false);
             }
         }, 100);
-    }, [flights, startDate, endDate, currentUser.username, maintenanceBlocks, gateList]);
+    }, [flights, startDate, endDate, currentUser.username, maintenanceBlocks, gateList, planningTimeMode]);
 
     const handleCopilotUpdates = useCallback((updatedFlights: Flight[], message: string) => {
         const newHistoryEntry: FlightHistoryEntry = {
@@ -2344,6 +2421,24 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                             </button>
                         </div>
 
+                        {/* Planlama Zaman Modu Anahtarı: Gerçekleşmiş (AIBT-AOBT) vs Canlı Öngörü (ETA-ETD + Gölge Barlar) */}
+                        <div className="flex items-center bg-gray-900 border border-gray-700/80 rounded-md p-0.5" title="Gerçekleşmiş (AIBT–AOBT) veya Canlı Öngörü (ETA–ETD + 7 Yıllık Hayalet Gölge Çubukları) modları arasında geçiş yap">
+                            <button
+                                onClick={() => handleSwitchPlanningTimeMode('AIBT_AOBT')}
+                                className={`px-2 py-0.5 font-semibold rounded transition flex items-center gap-1 ${planningTimeMode === 'AIBT_AOBT' ? 'bg-emerald-700 text-white shadow' : 'text-gray-400 hover:text-gray-200'}`}
+                            >
+                                <span>📊</span>
+                                <span>AIBT–AOBT</span>
+                            </button>
+                            <button
+                                onClick={() => handleSwitchPlanningTimeMode('ETA_ETD')}
+                                className={`px-2 py-0.5 font-semibold rounded transition flex items-center gap-1 ${planningTimeMode === 'ETA_ETD' ? 'bg-gradient-to-r from-amber-600 to-rose-600 text-white shadow' : 'text-gray-400 hover:text-gray-200'}`}
+                            >
+                                <span>🔮</span>
+                                <span>ETA–ETD</span>
+                            </button>
+                        </div>
+
                         {/* Compact Undo / Redo / Reset / Commit */}
                         <div className="flex items-center bg-gray-900 border border-gray-700/80 rounded-md p-0.5">
                             <button
@@ -2741,6 +2836,7 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                                                             allMaintenanceBlocks={maintenanceBlocks}
                                                             onUpdateMaintenanceBlock={handleUpdateMaintenanceBlock}
                                                             isSuperSetMode={isSuperSetMode}
+                                                            planningTimeMode={planningTimeMode}
                                                         />
                                                     )}
                                                 </>
@@ -2773,6 +2869,7 @@ const App: React.FC<{ user: User }> = ({ user }) => {
                                                 maintenanceBlocks={EMPTY_MAINTENANCE}
                                                 onUpdateMaintenanceBlock={() => {}} // Not applicable for gates
                                                 isSuperSetMode={isSuperSetMode}
+                                                planningTimeMode={planningTimeMode}
                                             />
                                         )}
                                     </>
