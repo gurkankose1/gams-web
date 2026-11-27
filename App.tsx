@@ -1104,7 +1104,7 @@ const App: React.FC<{ user: User }> = ({ user }) => {
         setAllocationMessage(
             nextMode === 'ETA_ETD'
                 ? '🔮 Canlı Öngörü Modu (ETA–ETD) Aktif: 7 Yıllık Hayalet Gölge Çubukları (Min Çevrim + Gecikme Alışkanlığı) gösteriliyor ve AI planlamada dikkate alınıyor.'
-                : '📊 Gerçekleşmiş Mod (AIBT–AOBT) Aktif: Slotlar gerçekleşen takoz saatlerine (On Block – Off Block) döndürüldü.'
+                : '📊 Gerçekleşmiş Mod (AIBT–AOBT) Aktif: Slotlar uçağın park pozisyonuna giriş–çıkış saatlerine döndürüldü.'
         );
         setTimeout(() => setAllocationMessage(null), 6000);
     }, [planningTimeMode, flights, startDate, maintenanceBlocks, gateList]);

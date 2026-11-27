@@ -440,7 +440,7 @@ export function calculateBridgeUtilization(
             domCount++;
         }
 
-        // Gerçek takoz işgali (On Block -> Off Block; >36sa bakım/hangar sınırı ile)
+        // Park pozisyonu giriş–çıkış işgali (AIBT -> AOBT; >36sa bakım/hangar sınırı ile)
         const rawIn = f.raw_data ? parseRawDate(f.raw_data['On Block'] || f.raw_data['AIBT'] || f.raw_data['ATA']) : null;
         const rawOut = f.raw_data ? parseRawDate(f.raw_data['Off Block'] || f.raw_data['AOBT'] || f.raw_data['ATD']) : null;
         const tIn = rawIn || f.scheduledArrival;
